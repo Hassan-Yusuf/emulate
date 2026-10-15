@@ -34,6 +34,7 @@ import {
   formatAuthChallenge,
   formatClientSecret,
   formatItContact,
+  formatSSOProfile,
 } from './helpers.js';
 import { RESPONSE_SHAPE_REQUIREMENTS } from './generated/response-shapes.js';
 import type {
@@ -52,6 +53,7 @@ import type {
   WorkOSAuthenticationChallenge,
   WorkOSClientSecret,
   WorkOSItContact,
+  WorkOSSSOProfile,
 } from './entities.js';
 
 const TS = '2026-01-01T00:00:00.000Z';
@@ -265,6 +267,25 @@ const clientSecret: WorkOSClientSecret = {
   updated_at: TS,
 };
 
+// Timestamps populated on purpose: the spec's Profile has none, so the reverse check is what
+// proves the formatter strips the store's bookkeeping rather than passing it through.
+const ssoProfile: WorkOSSSOProfile = {
+  id: 'prof_01',
+  object: 'profile',
+  connection_id: 'conn_01',
+  connection_type: 'GenericSAML',
+  organization_id: 'org_01',
+  idp_id: 'idp_usr_1',
+  email: 'alice@acme.com',
+  first_name: 'Alice',
+  last_name: 'Smith',
+  name: null,
+  groups: ['Engineering'],
+  raw_attributes: { email: 'alice@acme.com' },
+  created_at: TS,
+  updated_at: TS,
+};
+
 const CASES: ReadonlyArray<{ objectType: string; output: Record<string, unknown> }> = [
   { objectType: 'user', output: formatUser(user) },
   { objectType: 'organization', output: formatOrganization(organization, ws, { domains: [] }) },
@@ -281,6 +302,7 @@ const CASES: ReadonlyArray<{ objectType: string; output: Record<string, unknown>
   { objectType: 'authentication_challenge', output: formatAuthChallenge(authChallenge) },
   { objectType: 'connect_application_secret', output: formatClientSecret(clientSecret) },
   { objectType: 'it_contact', output: formatItContact(itContact) },
+  { objectType: 'profile', output: formatSSOProfile(ssoProfile) },
 ];
 
 /**

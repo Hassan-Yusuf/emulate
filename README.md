@@ -1645,6 +1645,10 @@ connections:
       - email: admin@acme.com
         first_name: Admin
         last_name: User
+        # The profile's full name is its own attribute, as in production, where it is set only
+        # when the connection maps one. Omit it and the profile reports `name: null` — it is
+        # never composed from first_name and last_name.
+        name: Admin User
         groups: [admins, it_staff]
       - email: employee@acme.com
         first_name: Regular

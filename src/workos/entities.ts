@@ -242,6 +242,12 @@ export interface WorkOSSSOProfile extends Entity {
   email: string;
   first_name: string | null;
   last_name: string | null;
+  /**
+   * The full name, stored as its own attribute the way production stores it: the reconciler
+   * sets it only when the connection's attribute map has a `name` key, and never composes it
+   * from the two parts. Null for every profile the emulator mints itself.
+   */
+  name: string | null;
   groups: string[];
   raw_attributes: Record<string, unknown>;
 }

@@ -48,6 +48,7 @@ interface Fixtures {
   userId: string;
   membershipId: string;
   clientId: string;
+  connectionId: string;
   connectApplicationId: string;
   passwordResetToken: string;
   passwordResetId: string;
@@ -111,6 +112,18 @@ const CASES: readonly EnvelopeCase[] = [
   {
     operation: 'GET /sso/jwks/{clientId}',
     request: (app, f) => get(`/sso/jwks/${f.clientId}`)(app),
+  },
+  {
+    operation: 'POST /sso/token',
+    // The code is minted by the authorize redirect and spent by the exchange, so each run earns
+    // its own rather than sharing one with another case.
+    request: async (app, f) => {
+      const authorize = await app.request(
+        `/sso/authorize?connection=${f.connectionId}&redirect_uri=http://localhost:3000/callback`,
+      );
+      const code = new URL(authorize.headers.get('location')!).searchParams.get('code');
+      return post('/sso/token', { grant_type: 'authorization_code', code })(app);
+    },
   },
   {
     operation: 'POST /user_management/users/{userlandUserId}/auth_factors',
@@ -203,6 +216,8 @@ describe('response envelope conformance (route bodies vs OpenAPI spec)', () => {
       users: [{ email: 'alice@acme.com', password: 'secret123', totp: true }],
       permissions: [{ slug: 'posts:read', name: 'Read Posts' }],
       roles: [{ slug: 'member', name: 'Member', permissions: ['posts:read'] }],
+      // An active connection for the SSO token exchange to authorize against.
+      connections: [{ name: 'Acme SSO', organization: 'Acme Corp', domains: ['acme.com'] }],
       // Subscribed to an event this test never triggers, not the catch-all `[]`. Webhook
       // endpoints are seeded before api keys and connect applications, so a catch-all would
       // fire deliveries at a port nothing is listening on — and those in-flight fetches
@@ -270,6 +285,7 @@ describe('response envelope conformance (route bodies vs OpenAPI spec)', () => {
       userId,
       membershipId,
       clientId: 'client_billing',
+      connectionId: ws.connections.findOneBy('name', 'Acme SSO')!.id,
       connectApplicationId: ws.connectApplications.findOneBy('client_id', 'client_billing')!.id,
       passwordResetToken,
       passwordResetId,
