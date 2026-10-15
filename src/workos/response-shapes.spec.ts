@@ -33,6 +33,7 @@ import {
   formatAuthFactor,
   formatAuthChallenge,
   formatClientSecret,
+  formatItContact,
 } from './helpers.js';
 import { RESPONSE_SHAPE_REQUIREMENTS } from './generated/response-shapes.js';
 import type {
@@ -50,6 +51,7 @@ import type {
   WorkOSAuthenticationFactor,
   WorkOSAuthenticationChallenge,
   WorkOSClientSecret,
+  WorkOSItContact,
 } from './entities.js';
 
 const TS = '2026-01-01T00:00:00.000Z';
@@ -240,6 +242,18 @@ const authChallenge: WorkOSAuthenticationChallenge = {
 const store = new Store();
 const ws = getWorkOSStore(store);
 
+const itContact: WorkOSItContact = {
+  id: 'it_contact_01',
+  object: 'it_contact',
+  organization_id: 'org_01',
+  email: 'it@acme.com',
+  invited_at: TS,
+  invite_intents: ['sso'],
+  invite_setup_link: 'http://localhost:4100/portal/setup/it_contact_01',
+  created_at: TS,
+  updated_at: TS,
+};
+
 const clientSecret: WorkOSClientSecret = {
   id: 'secret_01',
   object: 'connect_application_secret',
@@ -266,6 +280,7 @@ const CASES: ReadonlyArray<{ objectType: string; output: Record<string, unknown>
   { objectType: 'authentication_factor', output: formatAuthFactor(authFactor) },
   { objectType: 'authentication_challenge', output: formatAuthChallenge(authChallenge) },
   { objectType: 'connect_application_secret', output: formatClientSecret(clientSecret) },
+  { objectType: 'it_contact', output: formatItContact(itContact) },
 ];
 
 /**

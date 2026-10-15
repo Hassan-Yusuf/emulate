@@ -26,6 +26,7 @@ import type {
   WorkOSAgentInstanceSession,
   WorkOSOrganization,
   WorkOSOrganizationDomain,
+  WorkOSItContact,
   WorkOSOrganizationMembership,
   WorkOSGroup,
   WorkOSUser,
@@ -119,6 +120,20 @@ const DOMAIN_EXCLUDE = new Set([...INTERNAL_FIELDS, 'verification_token', 'verif
 
 export function formatDomain(domain: WorkOSOrganizationDomain): Record<string, unknown> {
   return formatEntity(domain, { exclude: DOMAIN_EXCLUDE });
+}
+
+// The owning organization and the whole invitation state stay internal: the spec's ItContact
+// documents neither, and an invitation is addressed through the organization's routes.
+const IT_CONTACT_EXCLUDE = new Set([
+  ...INTERNAL_FIELDS,
+  'organization_id',
+  'invited_at',
+  'invite_intents',
+  'invite_setup_link',
+]);
+
+export function formatItContact(contact: WorkOSItContact): Record<string, unknown> {
+  return formatEntity(contact, { exclude: IT_CONTACT_EXCLUDE });
 }
 
 export function formatMembership(m: WorkOSOrganizationMembership, ws: WorkOSStore): Record<string, unknown> {

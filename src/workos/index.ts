@@ -4,6 +4,7 @@ import { generateId } from '../core/index.js';
 import { syncOrganizationResource } from './organization-resource.js';
 import { getWorkOSStore } from './store.js';
 import { organizationRoutes } from './routes/organizations.js';
+import { itContactRoutes } from './routes/it-contacts.js';
 import { organizationDomainRoutes } from './routes/organization-domains.js';
 import { membershipRoutes } from './routes/memberships.js';
 import { groupRoutes } from './routes/groups.js';
@@ -1070,6 +1071,7 @@ export const workosPlugin: ServicePlugin = {
   name: 'workos',
   register(ctx: RouteContext): void {
     organizationRoutes(ctx);
+    itContactRoutes(ctx);
     organizationDomainRoutes(ctx);
     membershipRoutes(ctx);
     groupRoutes(ctx);

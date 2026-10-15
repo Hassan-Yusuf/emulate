@@ -36,6 +36,22 @@ export interface WorkOSOrganizationDomain extends Entity {
   verification_prefix: string;
 }
 
+export interface WorkOSItContact extends Entity {
+  object: 'it_contact';
+  /** The owning organization. Not serialized: the spec's ItContact addresses it by route. */
+  organization_id: string;
+  email: string;
+  /**
+   * Admin Portal invitation state. None of it is serialized — the spec's invite and revoke
+   * routes answer 204 and `ItContact` documents no invitation fields — but it is what makes
+   * "an organization can have at most one active invitation" enforceable.
+   */
+  invited_at: string | null;
+  invite_intents: string[] | null;
+  /** The setup link an invitation would have emailed. Emulator-only; nothing delivers it. */
+  invite_setup_link: string | null;
+}
+
 export interface WorkOSOrganizationMembership extends Entity {
   object: 'organization_membership';
   organization_id: string;

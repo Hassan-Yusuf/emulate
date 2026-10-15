@@ -66,6 +66,7 @@ export const OBJECT_SCHEMA_MAP: readonly ShapeMapEntry[] = [
   // depth — enrollment's secrets are pinned by the route tests instead.
   { objectType: 'authentication_factor', schemaName: 'AuthenticationFactor' },
   { objectType: 'authentication_challenge', schemaName: 'AuthenticationChallenge' },
+  { objectType: 'it_contact', schemaName: 'ItContact' },
   // The spec names only the secret-bearing creation shape; the list route's secretless
   // variant is an inline schema, so `secret` is carried as a tracked gap on this entry.
   { objectType: 'connect_application_secret', schemaName: 'NewConnectApplicationSecret' },
@@ -162,6 +163,12 @@ export const ENVELOPE_SCHEMA_MAP: readonly EnvelopeMapEntry[] = [
   { method: 'GET', path: '/organizations', status: '200', schemaName: 'OrganizationList' },
   { method: 'GET', path: '/user_management/users', status: '200', schemaName: 'UserlandUserList' },
   { method: 'GET', path: '/connect/applications', status: '200', schemaName: 'ConnectApplicationList' },
+  {
+    method: 'GET',
+    path: '/organizations/{organization_id}/it_contacts',
+    status: '200',
+    schemaName: 'ItContactList',
+  },
   { method: 'GET', path: '/webhook_endpoints', status: '200', schemaName: 'WebhookEndpointList' },
   { method: 'GET', path: '/events', status: '200', schemaName: 'EventList' },
   {

@@ -141,6 +141,10 @@ const CASES: readonly EnvelopeCase[] = [
   { operation: 'GET /organizations', request: get('/organizations') },
   { operation: 'GET /user_management/users', request: get('/user_management/users') },
   { operation: 'GET /connect/applications', request: get('/connect/applications') },
+  {
+    operation: 'GET /organizations/{organization_id}/it_contacts',
+    request: (app, f) => get(`/organizations/${f.organizationId}/it_contacts`)(app),
+  },
   { operation: 'GET /webhook_endpoints', request: get('/webhook_endpoints') },
   { operation: 'GET /events', request: get('/events') },
   {
@@ -249,6 +253,17 @@ describe('response envelope conformance (route bodies vs OpenAPI spec)', () => {
       expires_at: new Date(Date.now() + 600_000).toISOString(),
       code: '123456',
     }).id;
+
+    // The IT contact list has no create-then-list case of its own, so the page it returns
+    // needs a record: an empty `data` array would satisfy the field assertions vacuously.
+    ws.itContacts.insert({
+      object: 'it_contact',
+      organization_id: organizationId,
+      email: 'it@acme.com',
+      invited_at: null,
+      invite_intents: null,
+      invite_setup_link: null,
+    });
 
     const fixtures: Fixtures = {
       organizationId,
