@@ -20,16 +20,28 @@ export class WorkOSApiError extends Error {
  * (which always carry `{code, message}`) need no special casing.
  */
 export class OauthApiError extends WorkOSApiError {
-  constructor(status: number, error: string, description: string) {
-    super(status, description, error);
+  /** Response headers the failure carries, e.g. the `WWW-Authenticate` a 401 invalid_client needs (RFC 6749 §5.2). */
+  readonly headers?: Record<string, string>;
+
+  /**
+   * `description` is optional because production's OAuth2 exception renders `error_description`
+   * only when one was given: its code and refresh-token failures are the bare `{ error }`.
+   */
+  constructor(status: number, error: string, description?: string, headers?: Record<string, string>) {
+    super(status, description ?? '', error);
     this.name = 'OauthApiError';
+    this.headers = headers;
   }
 }
 
 export function createApiErrorHandler(): ErrorHandler {
   return (err, c) => {
     if (err instanceof OauthApiError) {
-      return c.json({ error: err.code, error_description: err.message }, err.status as ContentfulStatusCode);
+      return c.json(
+        { error: err.code, ...(err.message ? { error_description: err.message } : {}) },
+        err.status as ContentfulStatusCode,
+        err.headers,
+      );
     }
     if (err instanceof WorkOSApiError) {
       const body: Record<string, unknown> = {

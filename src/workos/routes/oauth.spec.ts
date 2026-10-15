@@ -57,7 +57,7 @@ describe('OAuth M2M token routes', () => {
     });
     expect(res.status).toBe(200);
     const body = await json(res);
-    expect(body.token_type).toBe('Bearer');
+    expect(body.token_type).toBe('bearer');
     expect(body.expires_in).toBe(3600);
     expect(body.scope).toBe('invoices:read invoices:write');
 
@@ -197,8 +197,11 @@ describe('OAuth M2M token routes', () => {
       client_id: 'client_web',
       client_secret: 'secret_web',
     });
-    expect(res.status).toBe(400);
-    expect((await json(res)).error).toBe('unauthorized_client');
+    // Production's client_credentials handler: the grant is not enabled for the application, which
+    // it answers as a client failure, without the Basic challenge or a description.
+    expect(res.status).toBe(401);
+    expect(await json(res)).toEqual({ error: 'invalid_client' });
+    expect(res.headers.get('www-authenticate')).toBeNull();
   });
 
   it('rejects authorization_code for an m2m application', async () => {
@@ -209,8 +212,10 @@ describe('OAuth M2M token routes', () => {
       code: 'any_code',
       redirect_uri: 'http://localhost:3000/cb',
     });
-    expect(res.status).toBe(400);
-    expect((await json(res)).error).toBe('unauthorized_client');
+    // The authorization-code grant is likewise not enabled for an M2M application.
+    expect(res.status).toBe(401);
+    expect(await json(res)).toEqual({ error: 'invalid_client' });
+    expect(res.headers.get('www-authenticate')).toBeNull();
   });
 
   it('requires no API key (token endpoint is public)', async () => {
@@ -337,7 +342,7 @@ describe('OAuth M2M token routes', () => {
       client_secret: 'secret_malformed',
     });
     expect(noScope.status).toBe(200);
-    expect((await json(noScope)).scope).toBe('');
+    expect(await json(noScope)).not.toHaveProperty('scope');
 
     // A scope must not be accepted by substring-matching the stored string.
     const scoped = await form({
@@ -348,5 +353,184 @@ describe('OAuth M2M token routes', () => {
     });
     expect(scoped.status).toBe(400);
     expect((await json(scoped)).error).toBe('invalid_scope');
+  });
+});
+
+/**
+ * Client failures at the token endpoint. Observed against a production AuthKit domain, 2026-09-30:
+ * no client is `401 invalid_client` "Missing authorization header."; an unknown client_id is
+ * `401 invalid_client` "Application not found." under every grant type, an unsupported one
+ * included (so the client lookup runs before grant-type validation); both carry
+ * `WWW-Authenticate: Basic realm="AuthKit"`. This deliberately replaces the endpoint's earlier
+ * 400s for a missing client and its 401 with a different description for an unknown one.
+ */
+describe('OAuth token endpoint client errors', () => {
+  let app: ReturnType<typeof createTestApp>['app'];
+
+  beforeEach(() => {
+    const server = createTestApp();
+    app = server.app;
+    seedM2M(server.store);
+  });
+
+  const post = (body: Record<string, string>) =>
+    app.request('/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(body).toString(),
+    });
+  const expectInvalidClient = async (res: Response, description: string) => {
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe('Basic realm="AuthKit"');
+    expect(await res.json()).toEqual({ error: 'invalid_client', error_description: description });
+  };
+
+  it('answers no client at all with Missing authorization header', async () => {
+    await expectInvalidClient(await post({ grant_type: 'client_credentials' }), 'Missing authorization header.');
+    await expectInvalidClient(await post({}), 'Missing authorization header.');
+  });
+
+  it('answers a known confidential client that presents no secret with Missing client_secret', async () => {
+    // Production's ApplicationCredentialsOrPublicClientGuard, for a client that is not public.
+    await expectInvalidClient(
+      await post({ grant_type: 'client_credentials', client_id: 'client_billing' }),
+      'Missing client_secret.',
+    );
+  });
+
+  it('answers a wrong secret with Application not found, as the credentials lookup does', async () => {
+    await expectInvalidClient(
+      await post({ grant_type: 'client_credentials', client_id: 'client_billing', client_secret: 'secret_wrong' }),
+      'Application not found.',
+    );
+  });
+
+  it('answers an unknown client_id with Application not found under every grant type', async () => {
+    const bodies: Record<string, string>[] = [
+      { grant_type: 'client_credentials' },
+      { grant_type: 'client_credentials', client_secret: 'secret_billing_value' },
+      { grant_type: 'authorization_code', code: 'x', redirect_uri: 'http://localhost:3000/cb' },
+      { grant_type: 'refresh_token', refresh_token: 'ref_x' },
+      { grant_type: 'not_a_grant' },
+      {},
+    ];
+    for (const body of bodies) {
+      await expectInvalidClient(await post({ client_id: 'client_nope', ...body }), 'Application not found.');
+    }
+  });
+
+  it('checks the client before the grant type', async () => {
+    const known = await post({
+      grant_type: 'not_a_grant',
+      client_id: 'client_billing',
+      client_secret: 'secret_billing_value',
+    });
+    expect(known.status).toBe(400);
+    expect(await known.json()).toEqual({
+      error: 'unsupported_grant_type',
+      error_description: "Unsupported grant_type: 'not_a_grant'.",
+    });
+    // And the secret before the grant type: a confidential client's wrong secret is the client's
+    // failure whatever grant it names, as production's guards run before its body validation.
+    await expectInvalidClient(
+      await post({ grant_type: 'not_a_grant', client_id: 'client_billing', client_secret: 'wrong' }),
+      'Application not found.',
+    );
+    await expectInvalidClient(
+      await post({ grant_type: 'not_a_grant', client_id: 'client_billing' }),
+      'Missing client_secret.',
+    );
+    // No grant type at all is an invalid body, once the client is authenticated.
+    const none = await post({ client_id: 'client_billing', client_secret: 'secret_billing_value' });
+    expect(none.status).toBe(400);
+    expect(await none.json()).toEqual({ error: 'invalid_request', error_description: 'Invalid token request body.' });
+  });
+
+  it("reads the credentials from the body alone when it names a client_id, as production's parseAuthorization does", async () => {
+    // A client_id in the body means the Authorization header is never read: the secret there
+    // is a missing secret. Without one, the header is decoded as base64 and split on the first
+    // colon, with no form-decoding.
+    const basic = Buffer.from('client_billing:secret_billing_value').toString('base64');
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${basic}` };
+    const bodyWins = await app.request('/oauth2/token', {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'client_billing' }).toString(),
+    });
+    await expectInvalidClient(bodyWins, 'Missing client_secret.');
+    const headerOnly = await app.request('/oauth2/token', {
+      method: 'POST',
+      headers,
+      body: new URLSearchParams({ grant_type: 'client_credentials' }).toString(),
+    });
+    expect(headerOnly.status).toBe(200);
+    const noId = await app.request('/oauth2/token', {
+      method: 'POST',
+      headers: { ...headers, Authorization: `Basic ${Buffer.from(':secret_billing_value').toString('base64')}` },
+      body: new URLSearchParams({ grant_type: 'client_credentials' }).toString(),
+    });
+    await expectInvalidClient(noId, 'Missing client_id.');
+    const notBasic = await app.request('/oauth2/token', {
+      method: 'POST',
+      headers: { ...headers, Authorization: 'Bearer something' },
+      body: new URLSearchParams({ grant_type: 'client_credentials' }).toString(),
+    });
+    await expectInvalidClient(notBasic, 'Missing client_id.');
+  });
+
+  for (const method of ['post', 'basic']) {
+    it(`rejects ${method} secret authentication for a public client even after an admin adds a matching secret`, async () => {
+      const registration = await app.request('/oauth2/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: 'Test client',
+          redirect_uris: ['http://localhost:3000/cb'],
+          token_endpoint_auth_method: 'none',
+        }),
+      });
+      expect(registration.status).toBe(201);
+      const client = (await registration.json()) as any;
+      expect(client.client_secret).toBeUndefined();
+      const added = await app.request(`/connect/applications/${client.client_id}/client_secrets`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer sk_test_org' },
+      });
+      expect(added.status).toBe(201);
+      const { secret } = (await added.json()) as any;
+      const body: Record<string, string> = {
+        grant_type: 'authorization_code',
+        code: 'unknown_code',
+        redirect_uri: 'http://localhost:3000/cb',
+      };
+      const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      if (method === 'post') {
+        body.client_id = client.client_id;
+        body.client_secret = secret;
+      } else {
+        headers.Authorization = `Basic ${Buffer.from(`${client.client_id}:${secret}`).toString('base64')}`;
+      }
+      const res = await app.request('/oauth2/token', {
+        method: 'POST',
+        headers,
+        body: new URLSearchParams(body).toString(),
+      });
+      await expectInvalidClient(res, 'Unsupported client_secret.');
+    });
+  }
+
+  it('carries the header on a wrong secret too, and not on successes', async () => {
+    const wrong = await post({ grant_type: 'client_credentials', client_id: 'client_billing', client_secret: 'nope' });
+    expect(wrong.status).toBe(401);
+    expect(wrong.headers.get('www-authenticate')).toBe('Basic realm="AuthKit"');
+    const ok = await post({
+      grant_type: 'client_credentials',
+      client_id: 'client_billing',
+      client_secret: 'secret_billing_value',
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('www-authenticate')).toBeNull();
+    expect(ok.headers.get('cache-control')).toBe('no-store');
+    expect(ok.headers.get('pragma')).toBe('no-cache');
   });
 });

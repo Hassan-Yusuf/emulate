@@ -105,7 +105,7 @@ describe('Standalone Connect', () => {
     const tokenRes = await exchange(code);
     expect(tokenRes.status).toBe(200);
     const token = await json(tokenRes);
-    expect(token.token_type).toBe('Bearer');
+    expect(token.token_type).toBe('bearer');
     expect(token.expires_in).toBe(3600);
     expect(token.refresh_token).toBeUndefined();
     expect(token.id_token).toBeUndefined();
@@ -239,33 +239,87 @@ describe('Standalone Connect', () => {
     expect((await server.app.request(redirect_uri)).status).toBe(404);
   });
 
-  it('rejects invalid authorize parameters before minting a session', async () => {
-    for (const params of [
-      { client_id: '' },
-      { client_id: 'unknown' },
-      { redirect_uri: '' },
-      { response_type: 'token' },
-      { redirect_uri: 'http://localhost:3000/unregistered' },
-    ] as Record<string, string>[]) {
-      expect((await authorize(params)).status).toBe(400);
+  it('rejects invalid authorize parameters before minting a session, by redirect as production does', async () => {
+    // Production's authorize handler never answers with an API error body: failures before the
+    // callback is trusted go to the AuthKit domain's error page, and the rest to the callback.
+    const errorPage = (error: string) => `${baseUrl}/oauth2/error?error=${error}`;
+    for (const [params, location] of [
+      [{ client_id: '' }, errorPage('application_not_found')],
+      [{ redirect_uri: '' }, errorPage('invalid_redirect_uri')],
+      [{ redirect_uri: 'http://localhost:3000/unregistered' }, errorPage('invalid_redirect_uri')],
+    ] as [Record<string, string>, string][]) {
+      const res = await authorize(params);
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe(location);
     }
+    const unsupported = await authorize({ response_type: 'token' });
+    expect(unsupported.status).toBe(302);
+    const url = new URL(unsupported.headers.get('location')!);
+    expect(`${url.origin}${url.pathname}`).toBe('http://localhost:3000/callback');
+    expect(url.searchParams.get('error')).toBe('unsupported_response_type');
+    expect(url.searchParams.get('state')).toBe('state + /?&=');
     expect(ws.externalAuthSessions.all()).toHaveLength(0);
   });
 
-  it('requires an OAuth application configured with login_url', async () => {
+  it('sends an unknown client_id to the OAuth error page rather than answering an API error', async () => {
+    // Observed against a production AuthKit domain, 2026-09-30. Formerly asserted as a 400 here.
+    const res = await authorize({ client_id: 'unknown' });
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get('location')!);
+    expect(location.pathname).toBe('/oauth2/error');
+    expect(location.searchParams.get('error')).toBe('application_not_found');
+    expect(ws.externalAuthSessions.all()).toHaveLength(0);
+  });
+
+  for (const { name, params, error } of [
+    {
+      name: 'missing response_type',
+      params: { redirect_uri: 'https://untrusted.example/callback' },
+      error: 'application_not_found',
+    },
+    {
+      name: 'unsupported response_type',
+      params: { response_type: 'token', redirect_uri: 'https://untrusted.example/callback' },
+      error: 'application_not_found',
+    },
+    // The client_id and redirect_uri are parsed together before the client is looked up, so a
+    // query missing the redirect_uri is production's invalid_query_params first.
+    { name: 'missing redirect_uri', params: { response_type: 'code' }, error: 'invalid_query_params' },
+  ]) {
+    it(`sends an unknown client to the local error page before checking ${name}`, async () => {
+      const query = new URLSearchParams({ client_id: 'unknown', ...params } as Record<string, string>);
+      const res = await server.app.request(`/oauth2/authorize?${query}`);
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe(`${baseUrl}/oauth2/error?error=${error}`);
+    });
+  }
+
+  it('refuses a non-OAuth application, and hands one without login_url to the hosted sign-in', async () => {
     const application = ws.connectApplications.findOneBy('client_id', 'client_standalone')!;
     ws.connectApplications.update(application.id, { application_type: 'm2m' });
-    expect((await authorize()).status).toBe(400);
+    // An application without the authorization-code grant is refused on the callback, as production does.
+    const refused = await authorize();
+    expect(refused.status).toBe(302);
+    const url = new URL(refused.headers.get('location')!);
+    expect(`${url.origin}${url.pathname}`).toBe('http://localhost:3000/callback');
+    expect(url.searchParams.get('error')).toBe('unauthorized_client');
+    // Without a login_url this is no longer an error: the application is signed in on AuthKit's
+    // hosted page (see authkit-oauth-server.spec.ts) rather than through a Standalone Connect session.
     ws.connectApplications.update(application.id, { application_type: 'oauth', login_url: null });
-    expect((await authorize()).status).toBe(400);
+    const hosted = await authorize();
+    expect(hosted.status).toBe(302);
+    expect(new URL(hosted.headers.get('location')!).pathname).toBe('/user_management/authorize');
     expect(ws.externalAuthSessions.all()).toHaveLength(0);
   });
 
   it('applies redirect-host and unsafe-scheme guards to both browser destinations', async () => {
     const application = ws.connectApplications.findOneBy('client_id', 'client_standalone')!;
     ws.connectApplications.update(application.id, { redirect_uris: [] });
+    // A callback the host policy refuses is production's invalid_redirect_uri on the error page.
     for (const uri of ['https://untrusted.example/cb', 'javascript:alert(1)', 'not-a-url']) {
-      expect((await authorize({ redirect_uri: uri })).status).toBe(400);
+      const res = await authorize({ redirect_uri: uri });
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe(`${baseUrl}/oauth2/error?error=invalid_redirect_uri`);
     }
     ws.connectApplications.update(application.id, { login_url: 'https://untrusted.example/login' });
     expect((await authorize()).status).toBe(400);
