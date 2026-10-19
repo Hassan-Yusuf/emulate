@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/workos/emulate/compare/v0.15.0...v0.15.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **authorization:** emit source.group on role assignments ([#144](https://github.com/workos/emulate/issues/144)) ([8089acf](https://github.com/workos/emulate/commit/8089acfb29cb919eb9736e1f93b320da68829708))
+
 ## [0.15.0](https://github.com/workos/emulate/compare/v0.14.0...v0.15.0) (2026-10-15)
 
 
