@@ -19,6 +19,7 @@ import {
   formatPermission,
 } from '../helpers.js';
 import { resolvePrimaryRole } from '../role-helpers.js';
+import { membershipRoleSlugs } from '../membership-roles.js';
 import { findOrCreateOrganizationResource } from '../organization-resource.js';
 
 // The resource itself plus every ancestor reachable through parent_resource_id.
@@ -35,7 +36,7 @@ function resourceAncestry(ws: WorkOSStore, resource: WorkOSAuthorizationResource
 
 /**
  * Gather the permission slugs a membership holds, from:
- * 1. The membership's primary role (organization-wide)
+ * 1. Every role the membership holds (organization-wide)
  * 2. Additional role assignments — organization-wide ones always apply;
  *    resource-scoped ones apply only when checking against that resource or
  *    one of its descendants.
@@ -59,9 +60,11 @@ function getPermissionsForMembership(
     }
   };
 
-  // Permissions from the membership's primary role
-  const primaryRole = resolvePrimaryRole(ws, membership.organization_id, membership.role.slug);
-  if (primaryRole) addRolePermissions(primaryRole.id);
+  // Permissions from every role the membership holds
+  for (const slug of membershipRoleSlugs(membership)) {
+    const role = resolvePrimaryRole(ws, membership.organization_id, slug);
+    if (role) addRolePermissions(role.id);
+  }
 
   // Permissions from additional role assignments
   const scopeIds = resource ? resourceAncestry(ws, resource) : null;

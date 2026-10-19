@@ -108,6 +108,57 @@ describe('Directory Sync routes', () => {
     expect(await (await req(`/directory_groups/${group.id}`)).status).toBe(404);
   });
 
+  it('hands a managed membership to the surviving directory with its whole role set', async () => {
+    const ws = getWorkOSStore(store);
+    const org = await json(await req('/organizations', { method: 'POST', body: JSON.stringify({ name: 'Acme' }) }));
+    const user = await json(
+      await req('/user_management/users', { method: 'POST', body: JSON.stringify({ email: 'jane@acme.com' }) }),
+    );
+    const membership = await json(
+      await req('/user_management/organization_memberships', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slug: 'admin' }),
+      }),
+    );
+    ws.organizationMemberships.update(membership.id, { directory_managed: true });
+
+    const directoryUser = (directoryId: string, role: string) =>
+      ws.directoryUsers.insert({
+        object: 'directory_user',
+        directory_id: directoryId,
+        organization_id: org.id,
+        idp_id: `idp_${directoryId}`,
+        first_name: 'Jane',
+        last_name: 'Doe',
+        email: 'jane@acme.com',
+        username: 'jdoe',
+        state: 'active',
+        role: { slug: role },
+        custom_attributes: {},
+        raw_attributes: {},
+        groups: [],
+      });
+    const directory = (name: string) =>
+      ws.directories.insert({
+        object: 'directory',
+        name,
+        organization_id: org.id,
+        domain: 'acme.com',
+        type: 'okta scim v2.0',
+        state: 'linked',
+        external_key: name,
+      });
+    const first = directory('First');
+    directoryUser(first.id, 'admin');
+    directoryUser(directory('Second').id, 'member');
+
+    expect((await req(`/directories/${first.id}`, { method: 'DELETE' })).status).toBe(204);
+
+    const after = await json(await req(`/user_management/organization_memberships/${membership.id}`));
+    expect(after.role).toEqual({ slug: 'member' });
+    expect(after.roles).toEqual([{ slug: 'member' }]);
+  });
+
   it('lists directory users with directory filter', async () => {
     const { dir } = seedDirectory();
     const res = await req(`/directory_users?directory=${dir.id}`);

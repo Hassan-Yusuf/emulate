@@ -94,6 +94,20 @@ describe('Authorization check + role assignment routes', () => {
     expect(body.authorized).toBe(true);
   });
 
+  it('authorizes through a permission that only a second role grants', async () => {
+    const { membership } = await setup();
+    await req(`/user_management/organization_memberships/${membership.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role_slugs: ['editor', 'admin-role'] }),
+    });
+
+    const res = await req(`/authorization/organization_memberships/${membership.id}/check`, {
+      method: 'POST',
+      body: JSON.stringify({ permission: 'admin:manage' }),
+    });
+    expect((await json(res)).authorized).toBe(true);
+  });
+
   it('returns authorized false when permission not assigned', async () => {
     const { membership } = await setup();
     const res = await req(`/authorization/organization_memberships/${membership.id}/check`, {

@@ -548,6 +548,26 @@ describe('Agent Auth routes', () => {
       await expectError(await mint(blueprint.id, grant), 403, 'user_not_member_of_organization');
     });
 
+    it('lets any held role invoke the blueprint and grants the union of what they allow', async () => {
+      const { org, blueprint } = await seedWorld();
+      const bob = seedUser('bob@acme.com');
+      const membership = seedMembership(org.id, bob.id, 'member');
+      await req(`/user_management/organization_memberships/${membership.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ role_slugs: ['member', 'manager'] }),
+      });
+      await req(`/agents/blueprints/${blueprint.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ invocable_by: { role_slugs: ['manager'] } }),
+      });
+
+      const login = await loginAs('bob@acme.com');
+      const body = await mintOk(blueprint.id, { type: 'user_delegated', user_access_token: login.access_token });
+      // `member` alone would be refused and would grant only crm:read; `manager` opens the door
+      // and the ceiling intersects the union of both roles.
+      expect(body.permissions).toEqual(['crm:read', 'email:send']);
+    });
+
     it('rejects a login older than max_age_seconds', async () => {
       const { blueprint } = await seedWorld({
         session_settings: { max_age_seconds: 60, access_token_ttl_seconds: 300, refresh_token_ttl_seconds: 3600 },
