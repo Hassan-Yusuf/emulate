@@ -285,6 +285,26 @@ export function validateSeedConfig(config: WorkOSSeedConfig): ConfigValidationRe
                   value: membership.status,
                 });
               }
+              if (membership.roles !== undefined) {
+                const roles = membership.roles as unknown;
+                if (
+                  !Array.isArray(roles) ||
+                  roles.length === 0 ||
+                  roles.some((slug) => typeof slug !== 'string' || slug.length === 0)
+                ) {
+                  errors.push({
+                    path: `organizations[${index}].memberships[${mIndex}].roles`,
+                    message: 'roles must be a non-empty array of role slugs if provided',
+                    value: membership.roles,
+                  });
+                } else if (membership.role !== undefined) {
+                  errors.push({
+                    path: `organizations[${index}].memberships[${mIndex}].roles`,
+                    message: 'use either role or roles for a membership, not both',
+                    value: membership.roles,
+                  });
+                }
+              }
               if (memberEmail.ok && membership.status !== 'inactive') {
                 const key = memberEmail.email.toLowerCase();
                 if (liveMemberEmails.has(key)) {

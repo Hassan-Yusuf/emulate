@@ -255,4 +255,39 @@ describe('Organization routes', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('GET /organizations/:id/roles', () => {
+    it("lists the environment roles and the organization's own, not another organization's", async () => {
+      const org = await json(
+        await req('/organizations', { method: 'POST', body: JSON.stringify({ name: 'Roles Org' }) }),
+      );
+      const other = await json(
+        await req('/organizations', { method: 'POST', body: JSON.stringify({ name: 'Other Org' }) }),
+      );
+      await req('/authorization/roles', { method: 'POST', body: JSON.stringify({ slug: 'analyst', name: 'Analyst' }) });
+      await req(`/authorization/organizations/${org.id}/roles`, {
+        method: 'POST',
+        body: JSON.stringify({ slug: 'org-staff', name: 'Staff' }),
+      });
+      await req(`/authorization/organizations/${other.id}/roles`, {
+        method: 'POST',
+        body: JSON.stringify({ slug: 'other-only', name: 'Other' }),
+      });
+
+      const res = await req(`/organizations/${org.id}/roles`);
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.object).toBe('list');
+      const slugs = body.data.map((r: { slug: string }) => r.slug);
+      expect(slugs).toContain('analyst');
+      expect(slugs).toContain('org-staff');
+      expect(slugs).not.toContain('other-only');
+      expect(body.data.every((r: { permissions: unknown }) => Array.isArray(r.permissions))).toBe(true);
+    });
+
+    it('returns 404 for an unknown organization', async () => {
+      const res = await req('/organizations/org_nonexistent/roles');
+      expect(res.status).toBe(404);
+    });
+  });
 });

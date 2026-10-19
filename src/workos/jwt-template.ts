@@ -19,6 +19,7 @@ import type { WorkOSStore } from './store.js';
 import type { WorkOSJwtTemplate, WorkOSUser } from './entities.js';
 import { STORE_KEYS } from './constants.js';
 import { formatUser, formatOrganization } from './helpers.js';
+import { membershipRoleSlugs } from './membership-roles.js';
 
 /**
  * Claims a template may not set. WorkOS rejects these at template-update time, so the
@@ -338,11 +339,12 @@ export function buildJwtTemplateContext(
     .findBy('organization_id', organizationId)
     .find((m) => m.user_id === user.id);
   if (membership) {
+    const roles = membershipRoleSlugs(membership);
     context.organization_membership = {
       object: 'organization_membership',
       id: membership.id,
-      role: membership.role.slug,
-      roles: [membership.role.slug],
+      role: roles[0],
+      roles,
       created_at: membership.created_at,
       updated_at: membership.updated_at,
       custom_attributes: {},

@@ -260,5 +260,38 @@ describe('Seeding organization memberships', () => {
       expect(result.errors).toEqual([]);
       expect(result.valid).toBe(true);
     });
+
+    it('rejects roles that are empty or paired with role', () => {
+      const empty = validateSeedConfig({
+        users: [{ email: 'admin@acme.com' }],
+        organizations: [{ name: 'Acme', memberships: [{ email: 'admin@acme.com', roles: [] }] }],
+      });
+      expect(empty.errors.map((e) => e.path)).toEqual(['organizations[0].memberships[0].roles']);
+
+      const both = validateSeedConfig({
+        users: [{ email: 'admin@acme.com' }],
+        organizations: [{ name: 'Acme', memberships: [{ email: 'admin@acme.com', role: 'admin', roles: ['admin'] }] }],
+      });
+      expect(both.errors.map((e) => e.message)).toEqual(['use either role or roles for a membership, not both']);
+    });
+
+    it('seeds a membership holding several roles, the first as primary', async () => {
+      emulator = await createEmulator({
+        port: 0,
+        seed: {
+          users: [{ email: 'multi@acme.com' }],
+          organizations: [
+            { name: 'Acme Corp', memberships: [{ email: 'multi@acme.com', roles: ['admin', 'analyst'] }] },
+          ],
+        },
+      });
+
+      const res = await fetch(`${emulator.url}/user_management/organization_memberships`, {
+        headers: auth(emulator.apiKey),
+      });
+      const m = ((await res.json()) as any).data[0];
+      expect(m.role).toEqual({ slug: 'admin' });
+      expect(m.roles).toEqual([{ slug: 'admin' }, { slug: 'analyst' }]);
+    });
   });
 });

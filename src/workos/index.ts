@@ -47,6 +47,7 @@ import { webhookEndpointRoutes } from './routes/webhook-endpoints.js';
 import { eventRoutes } from './routes/events.js';
 import { EventBus } from './event-bus.js';
 import { STORE_KEYS, EVENTS, DEFAULT_RESOURCE_TYPE_SLUG } from './constants.js';
+import { membershipRoleFields } from './membership-roles.js';
 import { validateSeedConfig, formatValidationErrors } from './config-validator.js';
 import { validateJwtTemplateContent } from './jwt-template.js';
 import { environmentIdFor, flagEventContext } from './flag-context.js';
@@ -123,6 +124,11 @@ export interface WorkOSSeedOrganization {
      */
     email: string;
     role?: string;
+    /**
+     * Every role the membership holds, primary first — the shape production stores once
+     * multiple roles are enabled. Use this or `role`, not both.
+     */
+    roles?: string[];
     status?: 'active' | 'inactive' | 'pending';
   }>;
   /**
@@ -604,7 +610,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkOSSee
             object: 'organization_membership',
             organization_id: org.id,
             user_id: memberUser.id,
-            role: { slug: mm.role ?? 'member' },
+            ...membershipRoleFields(mm.roles ?? [mm.role ?? 'member']),
             status: mm.status ?? 'active',
             external_id: null,
             metadata: {},
@@ -794,7 +800,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkOSSee
           if (!membership.directory_managed) updates.directory_managed = true;
           if (role && !rolesApplied.has(membership.id)) {
             rolesApplied.add(membership.id);
-            updates.role = { slug: role };
+            Object.assign(updates, membershipRoleFields([role]));
           }
           if (Object.keys(updates).length > 0) ws.organizationMemberships.update(membership.id, updates);
         }

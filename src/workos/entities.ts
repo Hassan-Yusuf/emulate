@@ -57,6 +57,12 @@ export interface WorkOSOrganizationMembership extends Entity {
   organization_id: string;
   user_id: string;
   role: { slug: string };
+  /**
+   * Every role the membership holds, primary first. Production lists `roles` beside the
+   * singular `role` once multiple roles are enabled, with `role` the first of them. Absent on
+   * rows written before this field existed, which read as their single `role`.
+   */
+  roles?: Array<{ slug: string }>;
   status: 'active' | 'inactive' | 'pending';
   external_id: string | null;
   metadata: Record<string, string>;

@@ -226,6 +226,64 @@ describe('Membership routes', () => {
     expect(list.data[0].directory_managed).toBe(false);
     expect(list.data[0].user.id).toBe(user.id);
   });
+
+  it('creates a membership holding several roles, the first as primary', async () => {
+    const org = await createOrg('Multi Role Org');
+    const user = await createUser('multi@test.com');
+
+    const res = await req('/user_management/organization_memberships', {
+      method: 'POST',
+      body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slugs: ['admin', 'guardian-analyst'] }),
+    });
+    expect(res.status).toBe(201);
+    const m = await json(res);
+    expect(m.role).toEqual({ slug: 'admin' });
+    expect(m.roles).toEqual([{ slug: 'admin' }, { slug: 'guardian-analyst' }]);
+  });
+
+  it('replaces the whole role set on update, by role_slugs or a single role_slug', async () => {
+    const org = await createOrg('Role Set Org');
+    const user = await createUser('roleset@test.com');
+    const created = await json(
+      await req('/user_management/organization_memberships', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: org.id, user_id: user.id }),
+      }),
+    );
+
+    const widened = await json(
+      await req(`/user_management/organization_memberships/${created.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ role_slugs: ['member', 'guardian-analyst', 'guardian-analyst'] }),
+      }),
+    );
+    expect(widened.role).toEqual({ slug: 'member' });
+    expect(widened.roles).toEqual([{ slug: 'member' }, { slug: 'guardian-analyst' }]);
+
+    const read = await json(await req(`/user_management/organization_memberships/${created.id}`));
+    expect(read.roles).toEqual([{ slug: 'member' }, { slug: 'guardian-analyst' }]);
+
+    const narrowed = await json(
+      await req(`/user_management/organization_memberships/${created.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ role_slug: 'admin' }),
+      }),
+    );
+    expect(narrowed.role).toEqual({ slug: 'admin' });
+    expect(narrowed.roles).toEqual([{ slug: 'admin' }]);
+  });
+
+  it('rejects an empty or malformed role_slugs', async () => {
+    const org = await createOrg('Bad Roles Org');
+    const user = await createUser('badroles@test.com');
+    for (const role_slugs of [[], ['admin', 7], 'admin']) {
+      const res = await req('/user_management/organization_memberships', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slugs }),
+      });
+      expect(res.status).toBe(422);
+    }
+  });
 });
 
 describe('formatMembership invariant', () => {
