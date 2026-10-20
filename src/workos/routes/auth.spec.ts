@@ -276,8 +276,23 @@ describe('Auth routes', () => {
 
     it('carries an invitation across the gate', async () => {
       const org = createOrg('Gated Corp');
+      // The account comes first: inviting an address with no account creates one, without a
+      // password, so a sign-up after the invitation would find the email taken.
+      const user = await json(
+        await req('/user_management/users', {
+          method: 'POST',
+          body: JSON.stringify({ email: 'invited@test.com', password: 'pw' }),
+        }),
+      );
       const invitation = await invite('invited@test.com', org.id, 'admin');
-      const { user, body } = await gatedSignIn('invited@test.com', { invitation_token: invitation.token });
+      const body = await json(
+        await post({
+          grant_type: 'password',
+          email: 'invited@test.com',
+          password: 'pw',
+          invitation_token: invitation.token,
+        }),
+      );
 
       // Not spent by the gate — the client may never come back from a 403.
       expect((await readInvitation(invitation.token)).state).toBe('pending');

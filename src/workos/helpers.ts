@@ -635,6 +635,64 @@ export function formatInvitation(inv: WorkOSInvitation): Record<string, unknown>
 }
 
 /**
+ * What WorkOS creates the moment an invitation to an organization is sent: the recipient's user,
+ * when the address has no account yet, and their membership, `pending` with the invitation's role.
+ * acceptInvitation activates that same membership; revoking the invitation leaves it behind, as in
+ * production. A membership that already exists takes the invitation's role, and an inactive one
+ * goes back to `pending` so acceptance activates it again; the REST route refuses to invite an
+ * active member before this runs. Shared by the invitations REST route and seeded invitations so
+ * the two cannot drift.
+ */
+export function provisionInvitee(inv: WorkOSInvitation, ws: WorkOSStore): void {
+  if (!inv.organization_id || !ws.organizations.get(inv.organization_id)) return;
+
+  const user =
+    findUserByEmail(ws, inv.email) ??
+    ws.users.insert({
+      object: 'user',
+      email: inv.email,
+      name: null,
+      first_name: null,
+      last_name: null,
+      email_verified: false,
+      profile_picture_url: null,
+      last_sign_in_at: null,
+      external_id: null,
+      metadata: {},
+      locale: null,
+      password_hash: null,
+      impersonator: null,
+    });
+
+  const role = { slug: inv.role_slug ?? 'member' };
+  // A seed may keep a deactivated membership beside the live one for the same user; the live
+  // one is the membership, and the stale inactive row must not be revived next to it.
+  const held = ws.organizationMemberships
+    .findBy('organization_id', inv.organization_id)
+    .filter((m) => m.user_id === user.id);
+  const existing = held.find((m) => m.status !== 'inactive') ?? held[0];
+  if (existing) {
+    // A seeded invitation for an active member leaves the membership as it is.
+    if (existing.status === 'inactive') {
+      ws.organizationMemberships.update(existing.id, { status: 'pending', role });
+    } else if (existing.status === 'pending' && existing.role.slug !== role.slug) {
+      ws.organizationMemberships.update(existing.id, { role });
+    }
+    return;
+  }
+
+  ws.organizationMemberships.insert({
+    object: 'organization_membership',
+    organization_id: inv.organization_id,
+    user_id: user.id,
+    role,
+    status: 'pending',
+    external_id: null,
+    metadata: {},
+  });
+}
+
+/**
  * Mark an invitation accepted and join its recipient to the organization it names, returning that
  * organization's id (null if the invitation names none). Shared by the invitations REST route and
  * the authenticate grants that accept an `invitation_token` so the two cannot drift; validating

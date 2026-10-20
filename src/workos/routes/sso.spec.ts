@@ -296,10 +296,37 @@ describe('SSO routes', () => {
 
       expect(res.status).toBe(400);
       expect((await json(res)).code).toBe('invitation_cannot_be_used_for_email');
-      // Nothing was consumed: no account was provisioned for the interloper, and the same code
-      // still signs in once the invitation is dropped.
-      expect(getWorkOSStore(store).users.all()).toHaveLength(0);
+      // Nothing was consumed: no account was provisioned for the interloper (the recipient's was,
+      // by the invitation), and the same code still signs in once the invitation is dropped.
+      expect(
+        getWorkOSStore(store)
+          .users.all()
+          .map((u) => u.email),
+      ).toEqual(['recipient@sso.example.com']);
       expect((await authenticate(code)).status).toBe(200);
+    });
+
+    // The invitation creates its recipient unverified; the IdP asserting the address on their
+    // first SSO login is what verifies it, as it does for an account the login provisions.
+    it("verifies an invited user's email on their first SSO login", async () => {
+      const { org, conn } = await createOrgWithConnection();
+      const invitation = await json(
+        await req('/user_management/invitations', {
+          method: 'POST',
+          body: JSON.stringify({ email: 'invitee@sso.example.com', organization_id: org.id }),
+        }),
+      );
+
+      const res = await authenticate(await ssoCode(conn.id, 'invitee@sso.example.com'), {
+        invitation_token: invitation.token,
+      });
+
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.user.email_verified).toBe(true);
+      expect(body.organization_id).toBe(org.id);
+      const [membership] = getWorkOSStore(store).organizationMemberships.findBy('user_id', body.user.id);
+      expect(membership.status).toBe('active');
     });
   });
 

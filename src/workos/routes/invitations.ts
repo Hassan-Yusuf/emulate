@@ -6,6 +6,8 @@ import {
   expiresIn,
   formatListResponse,
   acceptInvitation,
+  provisionInvitee,
+  liveMembershipFor,
   findUserByEmail,
   emailsMatch,
   requireEmailField,
@@ -27,6 +29,16 @@ export function invitationRoutes(ctx: RouteContext): void {
     // resolves a user by this email, so a typo is spent silently, enrolling no one.
     const email = requireEmailField(body.email, { requireShape: true });
 
+    // Production refuses to invite someone who already holds an active membership in the
+    // organization. An inactive or pending membership is re-invited instead (see provisionInvitee).
+    const organizationId = (body.organization_id as string) ?? null;
+    if (organizationId) {
+      const recipient = findUserByEmail(ws, email);
+      if (recipient && liveMembershipFor(ws, organizationId, recipient.id)?.status === 'active') {
+        throw new WorkOSApiError(400, 'User already a member of organization.', 'user_already_organization_member');
+      }
+    }
+
     const token = generateVerificationToken();
     const inv = ws.invitations.insert({
       object: 'invitation',
@@ -34,7 +46,7 @@ export function invitationRoutes(ctx: RouteContext): void {
       state: 'pending',
       token,
       accept_invitation_url: `${ctx.baseUrl}/user_management/invitations/accept?token=${token}`,
-      organization_id: (body.organization_id as string) ?? null,
+      organization_id: organizationId,
       inviter_user_id: (body.inviter_user_id as string) ?? null,
       role_slug: (body.role_slug as string) ?? null,
       expires_at: expiresIn(72 * 60), // 72 hours
@@ -42,6 +54,8 @@ export function invitationRoutes(ctx: RouteContext): void {
       revoked_at: null,
       accepted_user_id: null,
     });
+
+    provisionInvitee(inv, ws);
 
     return c.json(formatInvitation(inv), 201);
   });

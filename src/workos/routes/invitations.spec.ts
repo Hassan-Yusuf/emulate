@@ -148,6 +148,146 @@ describe('Invitation routes', () => {
     expect(accepted.accepted_user_id).toBe(memberships.data[0].user_id);
   });
 
+  describe('pending membership', () => {
+    // On WorkOS, inviting a user to an organization creates their membership at once as `pending`
+    // with the invitation's role; accepting activates it, and revoking leaves it behind.
+    async function invite(roleSlug?: string) {
+      const user = await json(
+        await req('/user_management/users', { method: 'POST', body: JSON.stringify({ email: 'alice@example.test' }) }),
+      );
+      const org = await json(
+        await req('/organizations', { method: 'POST', body: JSON.stringify({ name: 'Pending Org' }) }),
+      );
+      const inv = await json(
+        await req('/user_management/invitations', {
+          method: 'POST',
+          body: JSON.stringify({ email: 'alice@example.test', organization_id: org.id, role_slug: roleSlug }),
+        }),
+      );
+      return { user, org, inv };
+    }
+
+    const membershipsOf = async (orgId: string) =>
+      (
+        await json(
+          await req(
+            `/user_management/organization_memberships?organization_id=${orgId}&statuses=active,inactive,pending`,
+          ),
+        )
+      ).data;
+
+    it('creates a pending membership with the invitation role', async () => {
+      const { user, org } = await invite('admin');
+      const memberships = await membershipsOf(org.id);
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].user_id).toBe(user.id);
+      expect(memberships[0].status).toBe('pending');
+      expect(memberships[0].role.slug).toBe('admin');
+    });
+
+    it('activates the same membership on accept', async () => {
+      const { org, inv } = await invite();
+      const [pending] = await membershipsOf(org.id);
+      expect(pending.role.slug).toBe('member');
+
+      await req(`/user_management/invitations/${inv.id}/accept`, { method: 'POST' });
+      const memberships = await membershipsOf(org.id);
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].id).toBe(pending.id);
+      expect(memberships[0].status).toBe('active');
+    });
+
+    it('leaves the pending membership behind on revoke', async () => {
+      const { org, inv } = await invite();
+      await req(`/user_management/invitations/${inv.id}/revoke`, { method: 'POST' });
+      const memberships = await membershipsOf(org.id);
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].status).toBe('pending');
+    });
+
+    it('creates the user when the address has no account yet', async () => {
+      const org = await json(
+        await req('/organizations', { method: 'POST', body: JSON.stringify({ name: 'New Org' }) }),
+      );
+      await req('/user_management/invitations', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'carol@example.test', organization_id: org.id }),
+      });
+
+      const users = await json(await req('/user_management/users?email=carol@example.test'));
+      expect(users.data).toHaveLength(1);
+      expect(users.data[0].email_verified).toBe(false);
+      const memberships = await membershipsOf(org.id);
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].user_id).toBe(users.data[0].id);
+      expect(memberships[0].status).toBe('pending');
+    });
+
+    async function member(email: string) {
+      const user = await json(await req('/user_management/users', { method: 'POST', body: JSON.stringify({ email }) }));
+      const org = await json(
+        await req('/organizations', { method: 'POST', body: JSON.stringify({ name: `${email} Org` }) }),
+      );
+      const membership = await json(
+        await req('/user_management/organization_memberships', {
+          method: 'POST',
+          body: JSON.stringify({ organization_id: org.id, user_id: user.id }),
+        }),
+      );
+      return { user, org, membership };
+    }
+
+    it('refuses to invite an active member', async () => {
+      const { org } = await member('bob@example.test');
+      const res = await req('/user_management/invitations', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'bob@example.test', organization_id: org.id }),
+      });
+      expect(res.status).toBe(400);
+      expect((await json(res)).code).toBe('user_already_organization_member');
+      const memberships = await membershipsOf(org.id);
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].status).toBe('active');
+      expect((await json(await req('/user_management/invitations?email=bob@example.test'))).data).toHaveLength(0);
+    });
+
+    it('resets an inactive membership to pending with the invitation role', async () => {
+      const { org, membership } = await member('dana@example.test');
+      await req(`/user_management/organization_memberships/${membership.id}/deactivate`, { method: 'PUT' });
+
+      const inv = await json(
+        await req('/user_management/invitations', {
+          method: 'POST',
+          body: JSON.stringify({ email: 'dana@example.test', organization_id: org.id, role_slug: 'admin' }),
+        }),
+      );
+      let memberships = await membershipsOf(org.id);
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].id).toBe(membership.id);
+      expect(memberships[0].status).toBe('pending');
+      expect(memberships[0].role.slug).toBe('admin');
+
+      await req(`/user_management/invitations/${inv.id}/accept`, { method: 'POST' });
+      memberships = await membershipsOf(org.id);
+      expect(memberships[0].id).toBe(membership.id);
+      expect(memberships[0].status).toBe('active');
+      expect(memberships[0].role.slug).toBe('admin');
+    });
+
+    it('gives a pending membership the role of a fresh invitation', async () => {
+      const { org, inv } = await invite();
+      await req(`/user_management/invitations/${inv.id}/revoke`, { method: 'POST' });
+      await req('/user_management/invitations', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'alice@example.test', organization_id: org.id, role_slug: 'admin' }),
+      });
+      const memberships = await membershipsOf(org.id);
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].status).toBe('pending');
+      expect(memberships[0].role.slug).toBe('admin');
+    });
+  });
+
   // Resolving the recipient exactly enrolled nobody for an account stored under a different case:
   // the invitation was still spent and invitation.accepted still fired, with no membership to show
   // for it and no error anywhere. Magic Auth sign-up makes accounts under whatever case it was

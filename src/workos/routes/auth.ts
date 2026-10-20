@@ -788,8 +788,13 @@ export function authRoutes(ctx: RouteContext): void {
 
       ws.ssoAuthorizations.delete(ssoAuth.id);
 
+      // The IdP asserted the address, which is what verification proves — for an account that
+      // already exists too. An invitation creates its recipient unverified, so without this their
+      // first SSO login would come back `email_verified: false`.
       const existing = findUserByEmail(ws, profile.email);
-      if (existing) return existing;
+      if (existing) {
+        return existing.email_verified ? existing : ws.users.update(existing.id, { email_verified: true })!;
+      }
       return ws.users.insert({
         object: 'user',
         email: profile.email,

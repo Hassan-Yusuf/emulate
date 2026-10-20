@@ -100,6 +100,61 @@ describe('Seeding organization memberships', () => {
     ).rejects.toThrow(/email must match a user defined in users/);
   });
 
+  // A seeded invitation provisions what `POST /user_management/invitations` does: the recipient's
+  // pending membership, and their user when the address has no account yet.
+  it('gives a seeded invitation its pending membership, creating the user it names', async () => {
+    emulator = await createEmulator({
+      port: 0,
+      seed: {
+        users: [{ email: 'seeded@acme.com' }],
+        organizations: [{ id: 'org_01SEEDEDINVITE', name: 'Acme Corp' }],
+        invitations: [
+          { email: 'seeded@acme.com', organization_id: 'org_01SEEDEDINVITE', role_slug: 'admin' },
+          { email: 'new@acme.com', organization_id: 'org_01SEEDEDINVITE' },
+        ],
+      },
+    });
+
+    const res = await fetch(
+      `${emulator.url}/user_management/organization_memberships?organization_id=org_01SEEDEDINVITE&statuses=pending`,
+      { headers: auth(emulator.apiKey) },
+    );
+    const list = (await res.json()) as any;
+    const byEmail = Object.fromEntries(list.data.map((m: any) => [m.user.email, m]));
+    expect(Object.keys(byEmail).sort()).toEqual(['new@acme.com', 'seeded@acme.com']);
+    expect(byEmail['seeded@acme.com'].role).toEqual({ slug: 'admin' });
+    expect(byEmail['new@acme.com'].role).toEqual({ slug: 'member' });
+  });
+
+  // A seed may keep a deactivated membership beside the live one for the same user. The seeded
+  // invitation must find the live membership, not revive the stale inactive row beside it.
+  it('leaves a seeded member alone when an inactive membership sits beside the active one', async () => {
+    emulator = await createEmulator({
+      port: 0,
+      seed: {
+        users: [{ email: 'returning@acme.com' }],
+        organizations: [
+          {
+            id: 'org_01SEEDEDRETURN',
+            name: 'Acme Corp',
+            memberships: [
+              { email: 'returning@acme.com', status: 'inactive' },
+              { email: 'returning@acme.com', status: 'active', role: 'admin' },
+            ],
+          },
+        ],
+        invitations: [{ email: 'returning@acme.com', organization_id: 'org_01SEEDEDRETURN' }],
+      },
+    });
+
+    const res = await fetch(
+      `${emulator.url}/user_management/organization_memberships?organization_id=org_01SEEDEDRETURN&statuses=active,inactive,pending`,
+      { headers: auth(emulator.apiKey) },
+    );
+    const statuses = ((await res.json()) as any).data.map((m: any) => `${m.status}:${m.role.slug}`).sort();
+    expect(statuses).toEqual(['active:admin', 'inactive:member']);
+  });
+
   describe('seed config validation', () => {
     const findError = (config: Parameters<typeof validateSeedConfig>[0], pathFragment: string) => {
       const { valid, errors } = validateSeedConfig(config);
