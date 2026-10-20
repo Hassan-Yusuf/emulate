@@ -240,7 +240,7 @@ export function validateSeedConfig(config: WorkOSSeedConfig): ConfigValidationRe
               value: org.memberships,
             });
           } else {
-            // `POST /user_management/organization_memberships` 409s a second non-inactive
+            // `POST /user_management/organization_memberships` never adds a second non-inactive
             // membership for the same user, so seeding must not create one either: every
             // lookup that joins a user to their membership in an organization reads the
             // first match and would otherwise leave the second stale. Repeated `inactive`

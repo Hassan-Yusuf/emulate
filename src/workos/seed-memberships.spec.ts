@@ -276,9 +276,10 @@ describe('Seeding organization memberships', () => {
     });
 
     // The invariant every membership lookup relies on: `POST
-    // /user_management/organization_memberships` answers 409 for a second non-inactive
-    // membership, so a seed that got one through would leave every join by user id reading
-    // the first row and silently ignoring the second.
+    // /user_management/organization_memberships` never adds a second non-inactive membership
+    // (it answers with the existing active one, or a 400 for a pending one), so a seed that got
+    // one through would leave every join by user id reading the first row and silently ignoring
+    // the second.
     it('rejects two non-inactive memberships for one user in an organization', () => {
       const error = findError(
         {

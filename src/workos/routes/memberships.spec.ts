@@ -84,20 +84,95 @@ describe('Membership routes', () => {
     expect(got.status).toBe(404);
   });
 
-  it('rejects duplicate active membership', async () => {
+  it('returns the existing membership, unchanged, on a create over an active one', async () => {
     const org = await createOrg('Dup Org');
     const user = await createUser('dup@test.com');
 
-    await req('/user_management/organization_memberships', {
-      method: 'POST',
-      body: JSON.stringify({ organization_id: org.id, user_id: user.id }),
-    });
+    const first = await json(
+      await req('/user_management/organization_memberships', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slug: 'admin' }),
+      }),
+    );
 
     const res = await req('/user_management/organization_memberships', {
       method: 'POST',
-      body: JSON.stringify({ organization_id: org.id, user_id: user.id }),
+      body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slug: 'member' }),
     });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(201);
+    const again = await json(res);
+    expect(again.id).toBe(first.id);
+    expect(again.role.slug).toBe('admin');
+    const list = await json(await req(`/user_management/organization_memberships?organization_id=${org.id}`));
+    expect(list.data).toHaveLength(1);
+  });
+
+  describe('create over an existing membership', () => {
+    // The API reference: creating over an inactive membership activates it with the requested
+    // role; over a pending one it is a 400, since the user has to accept the invitation instead.
+    let store: ReturnType<typeof createTestApp>['store'];
+
+    beforeEach(() => {
+      ({ app, store } = createTestApp());
+    });
+
+    async function existing(status: 'inactive' | 'pending', roleSlug?: string) {
+      const org = await createOrg('Existing Org');
+      const user = await createUser(`${status}@existing.test`);
+      const m = await json(
+        await req('/user_management/organization_memberships', {
+          method: 'POST',
+          body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slug: roleSlug }),
+        }),
+      );
+      getWorkOSStore(store).organizationMemberships.update(m.id, { status });
+      return { orgId: org.id as string, userId: user.id as string, id: m.id as string };
+    }
+
+    const create = (orgId: string, userId: string, roleSlug?: string) =>
+      req('/user_management/organization_memberships', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: orgId, user_id: userId, role_slug: roleSlug }),
+      });
+
+    const membershipsOf = async (orgId: string) =>
+      (
+        await json(
+          await req(
+            `/user_management/organization_memberships?organization_id=${orgId}&statuses=active,inactive,pending`,
+          ),
+        )
+      ).data;
+
+    it('activates an inactive membership with the requested role, keeping its id', async () => {
+      const { orgId, userId, id } = await existing('inactive');
+      const res = await create(orgId, userId, 'admin');
+      expect(res.status).toBe(201);
+      const m = await json(res);
+      expect(m.id).toBe(id);
+      expect(m.status).toBe('active');
+      expect(m.role.slug).toBe('admin');
+      expect(await membershipsOf(orgId)).toHaveLength(1);
+    });
+
+    it('activates an inactive membership with the default role when none is requested', async () => {
+      const { orgId, userId, id } = await existing('inactive', 'admin');
+      const res = await create(orgId, userId);
+      expect(res.status).toBe(201);
+      const m = await json(res);
+      expect(m.id).toBe(id);
+      expect(m.role.slug).toBe('member');
+    });
+
+    it('refuses to create over a pending membership', async () => {
+      const { orgId, userId } = await existing('pending');
+      const res = await create(orgId, userId);
+      expect(res.status).toBe(400);
+      expect((await json(res)).code).toBe('cannot_reactivate_pending_organization_membership');
+      const memberships = await membershipsOf(orgId);
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].status).toBe('pending');
+    });
   });
 
   it('lists memberships filtered by org', async () => {

@@ -568,9 +568,10 @@ export function findUserByEmail(ws: WorkOSStore, email: string): WorkOSUser | un
 
 /**
  * The one membership a user holds in an organization that is not `inactive`. `POST
- * /user_management/organization_memberships` 409s a second live membership and
- * validateSeedConfig rejects one, so the first match is the only match — and a stale
- * deactivated record is never taken for the live one.
+ * /user_management/organization_memberships` never adds a second live membership (it answers
+ * with the existing active one, or a 400 for a pending one) and validateSeedConfig rejects one,
+ * so the first match is the only match — and a stale deactivated record is never taken for the
+ * live one.
  */
 export function liveMembershipFor(
   ws: WorkOSStore,
@@ -664,7 +665,8 @@ export function provisionInvitee(inv: WorkOSInvitation, ws: WorkOSStore): void {
       impersonator: null,
     });
 
-  const role = { slug: inv.role_slug ?? 'member' };
+  const roleSlug = inv.role_slug ?? 'member';
+  const roleFields = membershipRoleFields(ws, inv.organization_id, [roleSlug]);
   // A seed may keep a deactivated membership beside the live one for the same user; the live
   // one is the membership, and the stale inactive row must not be revived next to it.
   const held = ws.organizationMemberships
@@ -674,9 +676,12 @@ export function provisionInvitee(inv: WorkOSInvitation, ws: WorkOSStore): void {
   if (existing) {
     // A seeded invitation for an active member leaves the membership as it is.
     if (existing.status === 'inactive') {
-      ws.organizationMemberships.update(existing.id, { status: 'pending', role });
-    } else if (existing.status === 'pending' && existing.role.slug !== role.slug) {
-      ws.organizationMemberships.update(existing.id, { role });
+      ws.organizationMemberships.update(existing.id, { status: 'pending', ...roleFields });
+    } else if (existing.status === 'pending') {
+      const heldRoles = membershipRoleSlugs(ws, existing);
+      if (heldRoles.length !== 1 || heldRoles[0] !== roleSlug) {
+        ws.organizationMemberships.update(existing.id, roleFields);
+      }
     }
     return;
   }
@@ -685,7 +690,7 @@ export function provisionInvitee(inv: WorkOSInvitation, ws: WorkOSStore): void {
     object: 'organization_membership',
     organization_id: inv.organization_id,
     user_id: user.id,
-    role,
+    ...roleFields,
     status: 'pending',
     external_id: null,
     metadata: {},

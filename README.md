@@ -1796,7 +1796,8 @@ organizations:
       # Reference users by the email declared in `users` above — user ids are
       # generated at startup, so memberships are joined by email. One person gets
       # one membership per organization that is not `inactive`, the same rule
-      # POST /user_management/organization_memberships answers 409 for.
+      # POST /user_management/organization_memberships keeps: a create for a user who
+      # already holds an active one answers with that membership.
       - email: admin@acme.com
         role: admin
         status: active
