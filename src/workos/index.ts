@@ -47,6 +47,7 @@ import { webhookEndpointRoutes } from './routes/webhook-endpoints.js';
 import { eventRoutes } from './routes/events.js';
 import { EventBus } from './event-bus.js';
 import { STORE_KEYS, EVENTS, DEFAULT_RESOURCE_TYPE_SLUG } from './constants.js';
+import { membershipRoleFields } from './membership-roles.js';
 import { validateSeedConfig, formatValidationErrors } from './config-validator.js';
 import { validateJwtTemplateContent } from './jwt-template.js';
 import { environmentIdFor, flagEventContext } from './flag-context.js';
@@ -123,6 +124,12 @@ export interface WorkOSSeedOrganization {
      */
     email: string;
     role?: string;
+    /**
+     * Every role the membership holds — the shape production stores once multiple roles are
+     * enabled. `role` and the order of `roles` follow the role priority, as in production. Use
+     * this or `role`, not both.
+     */
+    roles?: string[];
     status?: 'active' | 'inactive' | 'pending';
   }>;
   /**
@@ -560,6 +567,47 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkOSSee
     }
   }
 
+  // Permissions and roles come before organizations: membership writes order their roles by
+  // role priority and the `organization_membership.created` event is formatted at insert time,
+  // so the roles have to exist for a seeded membership's event to name the same primary role
+  // its later reads do.
+  if (config.permissions) {
+    for (const permConfig of config.permissions) {
+      ws.permissions.insert({
+        object: 'permission',
+        slug: permConfig.slug,
+        name: permConfig.name,
+        description: permConfig.description ?? null,
+        resource_type_slug: permConfig.resource_type_slug ?? DEFAULT_RESOURCE_TYPE_SLUG,
+      });
+    }
+  }
+
+  if (config.roles) {
+    for (const roleConfig of config.roles) {
+      const role = ws.roles.insert({
+        object: 'role',
+        slug: roleConfig.slug,
+        name: roleConfig.name,
+        description: roleConfig.description ?? null,
+        type: roleConfig.type ?? 'EnvironmentRole',
+        organization_id: roleConfig.organization_id ?? null,
+        is_default_role: roleConfig.is_default_role ?? false,
+        priority: roleConfig.priority ?? 0,
+        resource_type_slug: roleConfig.resource_type_slug ?? DEFAULT_RESOURCE_TYPE_SLUG,
+      });
+
+      if (roleConfig.permissions) {
+        for (const permSlug of roleConfig.permissions) {
+          const perm = ws.permissions.findOneBy('slug', permSlug);
+          if (perm) {
+            ws.rolePermissions.insert({ role_id: role.id, permission_id: perm.id });
+          }
+        }
+      }
+    }
+  }
+
   if (config.organizations) {
     for (const orgConfig of config.organizations) {
       const org = ws.organizations.insert({
@@ -604,7 +652,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkOSSee
             object: 'organization_membership',
             organization_id: org.id,
             user_id: memberUser.id,
-            role: { slug: mm.role ?? 'member' },
+            ...membershipRoleFields(ws, org.id, mm.roles ?? [mm.role ?? 'member']),
             status: mm.status ?? 'active',
             external_id: null,
             metadata: {},
@@ -794,7 +842,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkOSSee
           if (!membership.directory_managed) updates.directory_managed = true;
           if (role && !rolesApplied.has(membership.id)) {
             rolesApplied.add(membership.id);
-            updates.role = { slug: role };
+            Object.assign(updates, membershipRoleFields(ws, membership.organization_id, [role]));
           }
           if (Object.keys(updates).length > 0) ws.organizationMemberships.update(membership.id, updates);
         }
@@ -837,43 +885,6 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkOSSee
         refresh_token: null,
         token_expires_at: null,
       });
-    }
-  }
-
-  if (config.permissions) {
-    for (const permConfig of config.permissions) {
-      ws.permissions.insert({
-        object: 'permission',
-        slug: permConfig.slug,
-        name: permConfig.name,
-        description: permConfig.description ?? null,
-        resource_type_slug: permConfig.resource_type_slug ?? DEFAULT_RESOURCE_TYPE_SLUG,
-      });
-    }
-  }
-
-  if (config.roles) {
-    for (const roleConfig of config.roles) {
-      const role = ws.roles.insert({
-        object: 'role',
-        slug: roleConfig.slug,
-        name: roleConfig.name,
-        description: roleConfig.description ?? null,
-        type: roleConfig.type ?? 'EnvironmentRole',
-        organization_id: roleConfig.organization_id ?? null,
-        is_default_role: roleConfig.is_default_role ?? false,
-        priority: roleConfig.priority ?? 0,
-        resource_type_slug: roleConfig.resource_type_slug ?? DEFAULT_RESOURCE_TYPE_SLUG,
-      });
-
-      if (roleConfig.permissions) {
-        for (const permSlug of roleConfig.permissions) {
-          const perm = ws.permissions.findOneBy('slug', permSlug);
-          if (perm) {
-            ws.rolePermissions.insert({ role_id: role.id, permission_id: perm.id });
-          }
-        }
-      }
     }
   }
 
@@ -1198,9 +1209,12 @@ export const workosPlugin: ServicePlugin = {
       onDelete: (d) => eventBus.emit({ event: EVENTS.organizationDomainDeleted, data: formatDomain(d) }),
     });
     ws.organizationMemberships.setHooks({
-      onInsert: (m) => eventBus.emit({ event: EVENTS.organizationMembershipCreated, data: formatMembershipEvent(m) }),
-      onUpdate: (m) => eventBus.emit({ event: EVENTS.organizationMembershipUpdated, data: formatMembershipEvent(m) }),
-      onDelete: (m) => eventBus.emit({ event: EVENTS.organizationMembershipDeleted, data: formatMembershipEvent(m) }),
+      onInsert: (m) =>
+        eventBus.emit({ event: EVENTS.organizationMembershipCreated, data: formatMembershipEvent(m, ws) }),
+      onUpdate: (m) =>
+        eventBus.emit({ event: EVENTS.organizationMembershipUpdated, data: formatMembershipEvent(m, ws) }),
+      onDelete: (m) =>
+        eventBus.emit({ event: EVENTS.organizationMembershipDeleted, data: formatMembershipEvent(m, ws) }),
     });
     // AuthKit groups. `group.created`/`updated`/`deleted` carry the full Group object the
     // spec's event data requires; `group.member_added`/`member_removed` carry only the two

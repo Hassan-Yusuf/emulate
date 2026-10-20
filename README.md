@@ -290,6 +290,10 @@ organizations:
         state: verified
     # Minted into the `entitlements` claim of access tokens scoped to this organization.
     entitlements: [audit-logs, sso]
+    memberships:
+      - email: alice@acme.com
+        # One `role`, or several with `roles` — the multiple-roles shape, ordered by role priority.
+        roles: [admin, document-editor]
 
 roles:
   - slug: admin
@@ -1227,7 +1231,7 @@ Webhooks are signed exactly like production WorkOS: `WorkOS-Signature: t=<timest
 
 Every fresh login resolves an organization the way production does, so tokens carry the claims your authorization code reads:
 
-- **One active membership** — selected implicitly. The response returns `organization_id` and the access token carries `org_id`, `role`, `roles`, and `permissions`.
+- **One active membership** — selected implicitly. The response returns `organization_id` and the access token carries `org_id`, `role`, `roles`, and `permissions`. A membership can hold several roles — `role_slugs` on `POST`/`PUT /user_management/organization_memberships`, or `roles:` in the seed — in which case `role` is the highest-priority role held, `roles` lists them all in priority order, and `permissions` is the union of what they grant.
 - **No memberships** — `organization_id` is `null` and the token carries no `org_id`. Nothing is invented.
 - **Several active memberships** — a `403` asking the client to choose, exactly as WorkOS does:
 

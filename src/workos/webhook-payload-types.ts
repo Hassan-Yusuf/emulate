@@ -43,6 +43,7 @@ export interface OrganizationMembershipEventData {
   user_id: string;
   organization_id: string;
   role: { slug: string };
+  roles: Array<{ slug: string }>;
   status: 'active' | 'inactive' | 'pending';
   external_id: string | null;
   metadata: Record<string, string>;

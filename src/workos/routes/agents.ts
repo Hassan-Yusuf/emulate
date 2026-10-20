@@ -8,6 +8,7 @@ import {
   parseListParams,
 } from '../../core/index.js';
 import { getWorkOSStore, type WorkOSStore } from '../store.js';
+import { membershipRoleSlugs } from '../membership-roles.js';
 import type {
   WorkOSAgentBlueprint,
   WorkOSAgentBlueprintInvocableBy,
@@ -264,7 +265,7 @@ interface SessionAuthority {
 /**
  * What an instance may do is derived from what it is, at every mint and refresh: an
  * autonomous instance holds the whole blueprint ceiling; a delegated one holds the ceiling
- * narrowed to its member's current role, and names the member in `act`. Authority the
+ * narrowed to its member's current roles, and names the member in `act`. Authority the
  * member lost since the last mint does not survive into the next token.
  */
 function resolveSessionAuthority(
@@ -279,14 +280,15 @@ function resolveSessionAuthority(
   if (!membership || membership.status !== 'active') {
     throw tokenError(403, 'user_not_member_of_organization', 'The user is not a member of the organization.');
   }
-  if (!isRoleInvocable(blueprint, membership.role.slug)) {
+  const held = membershipRoleSlugs(ws, membership);
+  if (!isRoleInvocable(blueprint, held)) {
     throw tokenError(
       403,
       'role_not_invocable',
       'The user does not hold a role allowed to invoke this agent blueprint.',
     );
   }
-  const granted = membershipPermissionSlugs(ws, membership.organization_id, membership.role.slug);
+  const granted = membershipPermissionSlugs(ws, membership.organization_id, held);
   return {
     permissions: intersectPermissions(blueprint, granted),
     act: { sub: membership.user_id, sub_profile: USER_SUBJECT_PROFILE },

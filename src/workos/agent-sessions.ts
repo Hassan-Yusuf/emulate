@@ -5,7 +5,7 @@ import type {
   WorkOSAgentInstanceSession,
   WorkOSSession,
 } from './entities.js';
-import { getRolePermissions, resolvePrimaryRole } from './role-helpers.js';
+import { permissionsForRoles } from './role-helpers.js';
 
 /**
  * Longest `agent_delegated` chain production will mint; every hop persists a session and
@@ -45,17 +45,22 @@ export function isOrganizationInvocable(blueprint: WorkOSAgentBlueprint, organiz
  * Permission slugs a membership's primary role grants, resolved the same way the
  * authorization endpoints and user access tokens do so the three never disagree.
  */
-export function membershipPermissionSlugs(ws: WorkOSStore, organizationId: string, roleSlug: string): string[] {
-  const role = resolvePrimaryRole(ws, organizationId, roleSlug);
-  return role ? getRolePermissions(ws, role.id).map((p) => p.slug) : [];
+/** Every permission the member's roles grant together, resolved as the authorization endpoints resolve them. */
+export function membershipPermissionSlugs(
+  ws: WorkOSStore,
+  organizationId: string,
+  roleSlugs: readonly string[],
+): string[] {
+  return permissionsForRoles(ws, organizationId, roleSlugs) ?? [];
 }
 
-export function isRoleInvocable(blueprint: WorkOSAgentBlueprint, roleSlug: string): boolean {
+/** A blueprint open to everyone, or to at least one of the roles the member holds. */
+export function isRoleInvocable(blueprint: WorkOSAgentBlueprint, roleSlugs: readonly string[]): boolean {
   const slugs = blueprint.invocable_by.role_slugs;
-  return slugs.length === 0 || slugs.includes(roleSlug);
+  return slugs.length === 0 || roleSlugs.some((held) => slugs.includes(held));
 }
 
-/** Blueprint ceiling narrowed to what the delegating member's role grants; order follows the ceiling. */
+/** Blueprint ceiling narrowed to what the delegating member's roles grant; order follows the ceiling. */
 export function intersectPermissions(blueprint: WorkOSAgentBlueprint, granted: string[]): string[] {
   const held = new Set(granted);
   return blueprint.permissions.filter((slug) => held.has(slug));

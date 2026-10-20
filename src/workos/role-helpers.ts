@@ -60,6 +60,24 @@ export function getRolePermissions(ws: WorkOSStore, roleId: string): WorkOSPermi
 }
 
 /**
+ * The permission slugs a membership's roles grant together: each slug resolves the way the
+ * authorization endpoints resolve it (an organization role shadows an environment role) and
+ * the union is deduplicated in role order. Undefined when no slug names a defined role, so a
+ * token's `permissions` claim is omitted rather than minted empty.
+ */
+export function permissionsForRoles(
+  ws: WorkOSStore,
+  organizationId: string,
+  slugs: readonly string[],
+): string[] | undefined {
+  const roles = slugs
+    .map((slug) => resolvePrimaryRole(ws, organizationId, slug))
+    .filter((role): role is WorkOSRole => role !== undefined);
+  if (roles.length === 0) return undefined;
+  return [...new Set(roles.flatMap((role) => getRolePermissions(ws, role.id).map((p) => p.slug)))];
+}
+
+/**
  * Replace a role's permission set. Every slug is resolved before the join
  * table is touched, so an unknown slug answers 404 and leaves the current set
  * intact rather than half-applied. Returns whether the set actually changed,

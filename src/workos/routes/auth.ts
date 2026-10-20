@@ -9,7 +9,8 @@ import {
   generateUlid,
 } from '../../core/index.js';
 import { getWorkOSStore, type WorkOSStore } from '../store.js';
-import { resolvePrimaryRole, getRolePermissions } from '../role-helpers.js';
+import { permissionsForRoles } from '../role-helpers.js';
+import { membershipRoleSlugs } from '../membership-roles.js';
 import { tokenFeatureFlags } from './feature-flags.js';
 import {
   formatUser,
@@ -1502,21 +1503,18 @@ export function authRoutes(ctx: RouteContext): void {
     }
     const updatedUser = ws.users.get(user.id)!;
 
-    // Resolve role + permissions for org-scoped sessions
-    let roleSlug: string | undefined;
+    // Resolve roles + permissions for org-scoped sessions
+    let roleSlugs: string[] | undefined;
     let permissionSlugs: string[] | undefined;
     if (organizationId) {
       const membership = ws.organizationMemberships
         .findBy('organization_id', organizationId)
         .find((m) => m.user_id === user.id);
       if (membership) {
-        roleSlug = membership.role.slug;
+        roleSlugs = membershipRoleSlugs(ws, membership);
         // Same resolution as the authorization endpoints, so the token's
         // permissions claim agrees with /check and effective-permissions.
-        const role = resolvePrimaryRole(ws, organizationId, membership.role.slug);
-        if (role) {
-          permissionSlugs = getRolePermissions(ws, role.id).map((p) => p.slug);
-        }
+        permissionSlugs = permissionsForRoles(ws, organizationId, roleSlugs);
       }
     }
 
@@ -1542,10 +1540,10 @@ export function authRoutes(ctx: RouteContext): void {
         sid: session.id,
         jti: generateUlid(),
         org_id: organizationId ?? undefined,
-        role: roleSlug,
-        // Production emits the plural `roles` alongside `role`; the emulator models one role per
-        // membership, so it is that role as a single-element array.
-        roles: roleSlug ? [roleSlug] : undefined,
+        role: roleSlugs?.[0],
+        // Production emits the plural `roles` alongside `role`: every role the membership
+        // holds, with `role` the first of them.
+        roles: roleSlugs,
         permissions: permissionSlugs,
         client_id: tokenClientId,
         // session.created_at gives the documented semantics: stamped at sign-in, unchanged by

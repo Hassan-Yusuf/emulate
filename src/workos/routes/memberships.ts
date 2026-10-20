@@ -9,6 +9,7 @@ import {
 } from '../../core/index.js';
 import { getWorkOSStore } from '../store.js';
 import { formatMembership, formatListResponse } from '../helpers.js';
+import { membershipRoleFields, roleSlugsFromBody } from '../membership-roles.js';
 import { deleteAgentInstancesForMembership, revokeAgentSessionsForMembership } from '../agent-sessions.js';
 
 export function membershipRoutes(ctx: RouteContext): void {
@@ -42,13 +43,11 @@ export function membershipRoutes(ctx: RouteContext): void {
       throw new WorkOSApiError(409, 'Membership already exists', 'conflict');
     }
 
-    const roleSlug = (body.role_slug as string) ?? 'member';
-
     const membership = ws.organizationMemberships.insert({
       object: 'organization_membership',
       organization_id: organizationId,
       user_id: userId,
-      role: { slug: roleSlug },
+      ...membershipRoleFields(ws, organizationId, roleSlugsFromBody(body) ?? ['member']),
       status: 'active',
       external_id: (body.external_id as string) ?? null,
       metadata: (body.metadata as Record<string, string>) ?? {},
@@ -92,9 +91,8 @@ export function membershipRoutes(ctx: RouteContext): void {
     const body = await parseJsonBody(c);
     const updates: Record<string, unknown> = {};
 
-    if ('role_slug' in body) {
-      updates.role = { slug: body.role_slug as string };
-    }
+    const roleSlugs = roleSlugsFromBody(body);
+    if (roleSlugs) Object.assign(updates, membershipRoleFields(ws, m.organization_id, roleSlugs));
     if ('external_id' in body) {
       updates.external_id = body.external_id ?? null;
     }

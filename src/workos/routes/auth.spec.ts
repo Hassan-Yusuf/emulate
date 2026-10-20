@@ -1612,6 +1612,45 @@ describe('Auth routes', () => {
     expect(claims.permissions).toEqual(['org:perm']);
   });
 
+  it('mints every role the membership holds and the union of their permissions', async () => {
+    const ws = getWorkOSStore(store);
+    const write = ws.permissions.insert({ object: 'permission', slug: 'doc:write', name: 'Write', description: null });
+    const read = ws.permissions.insert({ object: 'permission', slug: 'doc:read', name: 'Read', description: null });
+    const defineRole = (slug: string, permissionIds: string[]) => {
+      const role = ws.roles.insert({
+        object: 'role',
+        slug,
+        name: slug,
+        description: null,
+        type: 'EnvironmentRole',
+        organization_id: null,
+        is_default_role: false,
+        priority: 0,
+      });
+      for (const permissionId of permissionIds)
+        ws.rolePermissions.insert({ role_id: role.id, permission_id: permissionId });
+    };
+    defineRole('editor', [write.id]);
+    defineRole('viewer', [read.id, write.id]);
+
+    const user = await createUser('many-roles@test.com');
+    const org = joinOrg(user.id, 'Many Roles Corp', { role: 'editor' });
+    const membership = ws.organizationMemberships.findBy('organization_id', org.id)[0];
+    const put = await req(`/user_management/organization_memberships/${membership.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role_slugs: ['editor', 'viewer'] }),
+    });
+    expect(put.status).toBe(200);
+
+    const res = await signInWithMagicAuth('many-roles@test.com');
+    expect(res.status).toBe(200);
+    const claims = decodeJwt((await json(res)).access_token);
+    expect(claims.role).toBe('editor');
+    expect(claims.roles).toEqual(['editor', 'viewer']);
+    // The union, deduplicated in role order.
+    expect(claims.permissions).toEqual(['doc:write', 'doc:read']);
+  });
+
   it('includes client_id on the access token when the authorize flow carries one', async () => {
     await createUser('cid@test.com');
 

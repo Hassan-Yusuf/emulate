@@ -1,5 +1,6 @@
 import { type RouteContext, notFound, parseListParams } from '../../core/index.js';
 import { getWorkOSStore } from '../store.js';
+import { membershipRoleFields, membershipRoleSlugs } from '../membership-roles.js';
 import {
   formatDirectory,
   formatDirectoryUser,
@@ -74,8 +75,15 @@ export function directoryRoutes(ctx: RouteContext): void {
       // Role-less survivors claim the membership but not the role, the same way seeding
       // lets a directory with no mapping leave the role to the next one.
       const roleSurvivor = survivors.find((s) => s.role && emailsMatch(s.email ?? '', email));
-      if (roleSurvivor?.role && roleSurvivor.role.slug !== membership.role.slug) {
-        ws.organizationMemberships.update(membership.id, { role: { slug: roleSurvivor.role.slug } });
+      if (roleSurvivor?.role) {
+        // The survivor's mapping is the membership's whole role set, as it is when seeding.
+        const held = membershipRoleSlugs(ws, membership);
+        if (held.length !== 1 || held[0] !== roleSurvivor.role.slug) {
+          ws.organizationMemberships.update(
+            membership.id,
+            membershipRoleFields(ws, membership.organization_id, [roleSurvivor.role.slug]),
+          );
+        }
       }
     }
 
