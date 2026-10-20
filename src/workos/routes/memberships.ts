@@ -119,9 +119,16 @@ export function membershipRoutes(ctx: RouteContext): void {
   app.put('/user_management/organization_memberships/:id/deactivate', (c) => {
     const m = ws.organizationMemberships.get(c.req.param('id'));
     if (!m) throw notFound('Organization Membership');
-    if (m.status === 'inactive') {
-      throw validationError('Membership is already inactive');
+    // The API reference: a pending membership is an unaccepted invitation, revoked rather than
+    // deactivated; an inactive one is a no-op that emits no event, so the store is not touched.
+    if (m.status === 'pending') {
+      throw new WorkOSApiError(
+        400,
+        'Pending organization memberships cannot be deactivated. The invite must be revoked instead.',
+        'cannot_deactivate_pending_organization_membership',
+      );
     }
+    if (m.status === 'inactive') return c.json(formatMembership(m, ws));
     const updated = ws.organizationMemberships.update(m.id, {
       status: 'inactive',
     });
@@ -132,9 +139,16 @@ export function membershipRoutes(ctx: RouteContext): void {
   app.put('/user_management/organization_memberships/:id/reactivate', (c) => {
     const m = ws.organizationMemberships.get(c.req.param('id'));
     if (!m) throw notFound('Organization Membership');
-    if (m.status === 'active') {
-      throw validationError('Membership is already active');
+    // The API reference: a pending membership becomes active by accepting its invitation; an
+    // active one is a no-op that emits no event.
+    if (m.status === 'pending') {
+      throw new WorkOSApiError(
+        400,
+        'A pending organization membership cannot be reactivated. The user needs to accept the invitation instead.',
+        'cannot_reactivate_pending_organization_membership',
+      );
     }
+    if (m.status === 'active') return c.json(formatMembership(m, ws));
     const updated = ws.organizationMemberships.update(m.id, {
       status: 'active',
     });

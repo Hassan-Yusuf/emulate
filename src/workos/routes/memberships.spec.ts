@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { createServer, type ApiKeyMap } from '../../core/index.js';
 import { workosPlugin } from '../index.js';
 import { formatMembership } from '../helpers.js';
-import type { WorkOSStore } from '../store.js';
+import { getWorkOSStore, type WorkOSStore } from '../store.js';
 
 const apiKeys: ApiKeyMap = { sk_test_mem: { environment: 'test' } };
 const headers = { Authorization: 'Bearer sk_test_mem', 'Content-Type': 'application/json' };
@@ -173,6 +173,66 @@ describe('Membership routes', () => {
       await req(`/user_management/organization_memberships/${m.id}/reactivate`, { method: 'PUT' }),
     );
     expect(reactivated.status).toBe('active');
+  });
+
+  describe('deactivate and reactivate by status', () => {
+    // The API reference: deactivating an inactive membership and reactivating an active one are
+    // no-ops that emit no event; either on a pending membership is a 400.
+    let store: ReturnType<typeof createTestApp>['store'];
+
+    beforeEach(() => {
+      ({ app, store } = createTestApp());
+    });
+
+    async function membershipWithStatus(status: 'active' | 'inactive' | 'pending') {
+      const org = await createOrg('Lifecycle Org');
+      const user = await createUser(`${status}@lifecycle.test`);
+      const m = await json(
+        await req('/user_management/organization_memberships', {
+          method: 'POST',
+          body: JSON.stringify({ organization_id: org.id, user_id: user.id }),
+        }),
+      );
+      if (status !== 'active') getWorkOSStore(store).organizationMemberships.update(m.id, { status });
+      return m.id as string;
+    }
+
+    const updatedEvents = async () =>
+      (await json(await req('/events?events[]=organization_membership.updated'))).data.length as number;
+
+    it('refuses to deactivate a pending membership', async () => {
+      const id = await membershipWithStatus('pending');
+      const res = await req(`/user_management/organization_memberships/${id}/deactivate`, { method: 'PUT' });
+      expect(res.status).toBe(400);
+      expect((await json(res)).code).toBe('cannot_deactivate_pending_organization_membership');
+      expect((await json(await req(`/user_management/organization_memberships/${id}`))).status).toBe('pending');
+    });
+
+    it('treats deactivating an inactive membership as a no-op', async () => {
+      const id = await membershipWithStatus('inactive');
+      const before = await updatedEvents();
+      const res = await req(`/user_management/organization_memberships/${id}/deactivate`, { method: 'PUT' });
+      expect(res.status).toBe(200);
+      expect((await json(res)).status).toBe('inactive');
+      expect(await updatedEvents()).toBe(before);
+    });
+
+    it('refuses to reactivate a pending membership', async () => {
+      const id = await membershipWithStatus('pending');
+      const res = await req(`/user_management/organization_memberships/${id}/reactivate`, { method: 'PUT' });
+      expect(res.status).toBe(400);
+      expect((await json(res)).code).toBe('cannot_reactivate_pending_organization_membership');
+      expect((await json(await req(`/user_management/organization_memberships/${id}`))).status).toBe('pending');
+    });
+
+    it('treats reactivating an active membership as a no-op', async () => {
+      const id = await membershipWithStatus('active');
+      const before = await updatedEvents();
+      const res = await req(`/user_management/organization_memberships/${id}/reactivate`, { method: 'PUT' });
+      expect(res.status).toBe(200);
+      expect((await json(res)).status).toBe('active');
+      expect(await updatedEvents()).toBe(before);
+    });
   });
 
   it('serializes directory_managed, roles, and the embedded user (WorkOS SDK contract)', async () => {
