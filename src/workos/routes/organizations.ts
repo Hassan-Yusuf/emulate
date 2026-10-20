@@ -6,7 +6,6 @@ import {
   generateVerificationToken,
   formatListResponse,
   formatAuthorizedApplication,
-  formatRole,
   revokeApiKeysForOwner,
 } from '../helpers.js';
 import type { WorkOSOrganizationDomain } from '../entities.js';
@@ -94,24 +93,6 @@ export function organizationRoutes(ctx: RouteContext): void {
     const org = ws.organizations.get(c.req.param('id'));
     if (!org) throw notFound('Organization');
     return c.json(formatOrganization(org, ws));
-  });
-
-  // The roles an organization's members can hold: the environment roles plus the
-  // organization's own, in priority order. Production still serves this listing beside the
-  // Authorization API (`GET /organizations/:id/roles`), and the user-management SDKs'
-  // listOrganizationRoles call it.
-  app.get('/organizations/:id/roles', (c) => {
-    const org = ws.organizations.get(c.req.param('id'));
-    if (!org) throw notFound('Organization');
-    const roles = ws.roles
-      .all()
-      .filter((r) => (r.type === 'EnvironmentRole' && r.organization_id === null) || r.organization_id === org.id)
-      .sort((a, b) => a.priority - b.priority);
-    return c.json({
-      object: 'list',
-      data: roles.map((r) => formatRole(r, ws)),
-      list_metadata: { before: null, after: null },
-    });
   });
 
   app.get('/organizations/:id/authorized_applications', (c) => {
