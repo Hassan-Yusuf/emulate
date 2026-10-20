@@ -58,9 +58,10 @@ export interface WorkOSOrganizationMembership extends Entity {
   user_id: string;
   role: { slug: string };
   /**
-   * Every role the membership holds, primary first. Production lists `roles` beside the
-   * singular `role` once multiple roles are enabled, with `role` the first of them. Absent on
-   * rows written before this field existed, which read as their single `role`.
+   * Every role the membership holds, written in priority order with `role` the priority role.
+   * Production lists `roles` beside the singular `role` once multiple roles are enabled; readers
+   * re-derive both from the current role priorities (membershipRoleSlugs). Absent on rows written
+   * before this field existed, which read as their single `role`.
    */
   roles?: Array<{ slug: string }>;
   status: 'active' | 'inactive' | 'pending';

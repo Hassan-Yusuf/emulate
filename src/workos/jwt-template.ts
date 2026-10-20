@@ -339,7 +339,7 @@ export function buildJwtTemplateContext(
     .findBy('organization_id', organizationId)
     .find((m) => m.user_id === user.id);
   if (membership) {
-    const roles = membershipRoleSlugs(membership);
+    const roles = membershipRoleSlugs(ws, membership);
     context.organization_membership = {
       object: 'organization_membership',
       id: membership.id,

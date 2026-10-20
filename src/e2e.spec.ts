@@ -180,8 +180,10 @@ describe('end-to-end login flow (workos.com/docs story)', () => {
     expect(membershipWebhook.data.organization_id).toBe(org.id);
     verifySignature(membershipWebhook);
     expectSpecShape(membershipWebhook);
-    // The event payload stays slim: no REST-only `roles` / `user` embed (matches real WorkOS).
-    expect(membershipWebhook.data).not.toHaveProperty('roles');
+    // The event payload carries `role` and `roles` like the REST shape, but not the REST-only
+    // `user` embed (matches real WorkOS).
+    expect(membershipWebhook.data.role).toEqual({ slug: 'member' });
+    expect(membershipWebhook.data.roles).toEqual([{ slug: 'member' }]);
     expect(membershipWebhook.data).not.toHaveProperty('user');
   });
 

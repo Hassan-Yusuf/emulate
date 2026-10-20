@@ -77,9 +77,12 @@ export function directoryRoutes(ctx: RouteContext): void {
       const roleSurvivor = survivors.find((s) => s.role && emailsMatch(s.email ?? '', email));
       if (roleSurvivor?.role) {
         // The survivor's mapping is the membership's whole role set, as it is when seeding.
-        const held = membershipRoleSlugs(membership);
+        const held = membershipRoleSlugs(ws, membership);
         if (held.length !== 1 || held[0] !== roleSurvivor.role.slug) {
-          ws.organizationMemberships.update(membership.id, membershipRoleFields([roleSurvivor.role.slug]));
+          ws.organizationMemberships.update(
+            membership.id,
+            membershipRoleFields(ws, membership.organization_id, [roleSurvivor.role.slug]),
+          );
         }
       }
     }

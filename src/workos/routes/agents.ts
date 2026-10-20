@@ -280,7 +280,7 @@ function resolveSessionAuthority(
   if (!membership || membership.status !== 'active') {
     throw tokenError(403, 'user_not_member_of_organization', 'The user is not a member of the organization.');
   }
-  const held = membershipRoleSlugs(membership);
+  const held = membershipRoleSlugs(ws, membership);
   if (!isRoleInvocable(blueprint, held)) {
     throw tokenError(
       403,

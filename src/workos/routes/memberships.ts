@@ -47,7 +47,7 @@ export function membershipRoutes(ctx: RouteContext): void {
       object: 'organization_membership',
       organization_id: organizationId,
       user_id: userId,
-      ...membershipRoleFields(roleSlugsFromBody(body) ?? ['member']),
+      ...membershipRoleFields(ws, organizationId, roleSlugsFromBody(body) ?? ['member']),
       status: 'active',
       external_id: (body.external_id as string) ?? null,
       metadata: (body.metadata as Record<string, string>) ?? {},
@@ -92,7 +92,7 @@ export function membershipRoutes(ctx: RouteContext): void {
     const updates: Record<string, unknown> = {};
 
     const roleSlugs = roleSlugsFromBody(body);
-    if (roleSlugs) Object.assign(updates, membershipRoleFields(roleSlugs));
+    if (roleSlugs) Object.assign(updates, membershipRoleFields(ws, m.organization_id, roleSlugs));
     if ('external_id' in body) {
       updates.external_id = body.external_id ?? null;
     }

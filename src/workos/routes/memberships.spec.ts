@@ -227,7 +227,7 @@ describe('Membership routes', () => {
     expect(list.data[0].user.id).toBe(user.id);
   });
 
-  it('creates a membership holding several roles, the first as primary', async () => {
+  it('creates a membership holding several roles', async () => {
     const org = await createOrg('Multi Role Org');
     const user = await createUser('multi@test.com');
 
@@ -271,6 +271,63 @@ describe('Membership routes', () => {
     );
     expect(narrowed.role).toEqual({ slug: 'admin' });
     expect(narrowed.roles).toEqual([{ slug: 'admin' }]);
+  });
+
+  it('orders roles by role priority, read when the membership is, with the primary first', async () => {
+    const org = await createOrg('Priority Org');
+    const user = await createUser('priority@test.com');
+    for (const slug of ['editor', 'viewer']) {
+      await req(`/authorization/organizations/${org.id}/roles`, {
+        method: 'POST',
+        body: JSON.stringify({ slug, name: slug }),
+      });
+    }
+    const prioritize = (slugs: string[]) =>
+      req(`/authorization/organizations/${org.id}/roles/priority`, { method: 'PUT', body: JSON.stringify({ slugs }) });
+    await prioritize(['viewer', 'editor']);
+
+    const created = await json(
+      await req('/user_management/organization_memberships', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slugs: ['editor', 'viewer'] }),
+      }),
+    );
+    expect(created.role).toEqual({ slug: 'viewer' });
+    expect(created.roles).toEqual([{ slug: 'viewer' }, { slug: 'editor' }]);
+
+    // Production resolves the priority when it serializes, not when the roles were written.
+    await prioritize(['editor', 'viewer']);
+    const read = await json(await req(`/user_management/organization_memberships/${created.id}`));
+    expect(read.role).toEqual({ slug: 'editor' });
+    expect(read.roles).toEqual([{ slug: 'editor' }, { slug: 'viewer' }]);
+  });
+
+  it('carries role and roles on organization_membership events, without the user', async () => {
+    const org = await createOrg('Event Org');
+    const user = await createUser('event@test.com');
+    const m = await json(
+      await req('/user_management/organization_memberships', {
+        method: 'POST',
+        body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slugs: ['admin', 'guardian-analyst'] }),
+      }),
+    );
+
+    const events = await json(await req('/events?events[]=organization_membership.created'));
+    const event = events.data.find((e: any) => e.data.id === m.id);
+    expect(event.data.role).toEqual({ slug: 'admin' });
+    expect(event.data.roles).toEqual([{ slug: 'admin' }, { slug: 'guardian-analyst' }]);
+    expect(event.data.user).toBeUndefined();
+  });
+
+  it('rejects role_slug sent alongside role_slugs', async () => {
+    const org = await createOrg('Both Keys Org');
+    const user = await createUser('bothkeys@test.com');
+    const res = await req('/user_management/organization_memberships', {
+      method: 'POST',
+      body: JSON.stringify({ organization_id: org.id, user_id: user.id, role_slug: 'admin', role_slugs: ['admin'] }),
+    });
+    expect(res.status).toBe(422);
+    expect((await json(res)).message).toBe('The role_slug parameter cannot be used when role_slugs is provided.');
   });
 
   it('rejects an empty or malformed role_slugs', async () => {

@@ -61,7 +61,7 @@ function getPermissionsForMembership(
   };
 
   // Permissions from every role the membership holds
-  for (const slug of membershipRoleSlugs(membership)) {
+  for (const slug of membershipRoleSlugs(ws, membership)) {
     const role = resolvePrimaryRole(ws, membership.organization_id, slug);
     if (role) addRolePermissions(role.id);
   }

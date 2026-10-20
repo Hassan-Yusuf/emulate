@@ -20,7 +20,7 @@ import {
 } from './constants.js';
 import type { WorkOSStore } from './store.js';
 import type { EventBus } from './event-bus.js';
-import { membershipRoleFields } from './membership-roles.js';
+import { membershipRoleFields, membershipRoleSlugs } from './membership-roles.js';
 import type {
   WorkOSAgentBlueprint,
   WorkOSAgentInstance,
@@ -145,9 +145,9 @@ export function formatMembership(m: WorkOSOrganizationMembership, ws: WorkOSStor
   // them, which breaks strict SDK deserializers (e.g. the WorkOS Python SDK's
   // `OrganizationMembership.from_dict`, whose required-key lookup raises on the first
   // missing field). `directory_managed` is stored on the membership — seeding a directory
-  // sets it — `custom_attributes` defaults to `{}`, `roles` lists every role the membership
-  // holds (primary first; rows written before the field existed read as their single `role`),
-  // and the `user` is resolved from `user_id`.
+  // sets it — `custom_attributes` defaults to `{}`, `role` and `roles` are derived from the
+  // stored set in role priority order (see membershipRoleSlugs), and the `user` is resolved
+  // from `user_id`.
   const user = ws.users.get(m.user_id);
   if (!user) {
     // Every insertion path guarantees a live user (the create route 404s an unknown
@@ -159,23 +159,28 @@ export function formatMembership(m: WorkOSOrganizationMembership, ws: WorkOSStor
       `No user '${m.user_id}' for membership '${m.id}': the user was deleted without cascading, or the membership was inserted without validation`,
     );
   }
+  const roles = membershipRoleSlugs(ws, m).map((slug) => ({ slug }));
   return {
     ...formatEntity(m),
+    role: roles[0],
+    roles,
     directory_managed: m.directory_managed ?? false,
     custom_attributes: {},
-    roles: m.roles ?? [m.role],
     user: formatUser(user),
   };
 }
 
 // Webhook events carry a slimmer membership than the REST responses: the real WorkOS
 // `organization_membership.*` event payload requires `directory_managed` and
-// `custom_attributes`, but NOT `roles` or an embedded `user` (see EVENT_DATA_REQUIREMENTS).
-const MEMBERSHIP_EVENT_EXCLUDE = new Set<string>([...INTERNAL_FIELDS, 'roles']);
-// Keep the event shape spec-accurate instead of reusing the REST serializer.
-export function formatMembershipEvent(m: WorkOSOrganizationMembership): Record<string, unknown> {
+// `custom_attributes` and carries `role` and `roles` like the REST shape, but has no embedded
+// `user` (see EVENT_DATA_REQUIREMENTS). Keep the event shape spec-accurate instead of reusing
+// the REST serializer.
+export function formatMembershipEvent(m: WorkOSOrganizationMembership, ws: WorkOSStore): Record<string, unknown> {
+  const roles = membershipRoleSlugs(ws, m).map((slug) => ({ slug }));
   return {
-    ...formatEntity(m, { exclude: MEMBERSHIP_EVENT_EXCLUDE }),
+    ...formatEntity(m),
+    role: roles[0],
+    roles,
     directory_managed: m.directory_managed ?? false,
     custom_attributes: {},
   };
@@ -665,13 +670,16 @@ export function acceptInvitation(
         object: 'organization_membership',
         organization_id: inv.organization_id,
         user_id: user.id,
-        ...membershipRoleFields([roleSlug]),
+        ...membershipRoleFields(ws, inv.organization_id, [roleSlug]),
         status: 'active',
         external_id: null,
         metadata: {},
       });
     } else if (existing.status !== 'active') {
-      ws.organizationMemberships.update(existing.id, { status: 'active', ...membershipRoleFields([roleSlug]) });
+      ws.organizationMemberships.update(existing.id, {
+        status: 'active',
+        ...membershipRoleFields(ws, inv.organization_id, [roleSlug]),
+      });
     }
   }
 

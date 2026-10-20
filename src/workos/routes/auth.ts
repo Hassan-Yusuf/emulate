@@ -1511,7 +1511,7 @@ export function authRoutes(ctx: RouteContext): void {
         .findBy('organization_id', organizationId)
         .find((m) => m.user_id === user.id);
       if (membership) {
-        roleSlugs = membershipRoleSlugs(membership);
+        roleSlugs = membershipRoleSlugs(ws, membership);
         // Same resolution as the authorization endpoints, so the token's
         // permissions claim agrees with /check and effective-permissions.
         permissionSlugs = permissionsForRoles(ws, organizationId, roleSlugs);
