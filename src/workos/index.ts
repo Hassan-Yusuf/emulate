@@ -567,6 +567,47 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkOSSee
     }
   }
 
+  // Permissions and roles come before organizations: membership writes order their roles by
+  // role priority and the `organization_membership.created` event is formatted at insert time,
+  // so the roles have to exist for a seeded membership's event to name the same primary role
+  // its later reads do.
+  if (config.permissions) {
+    for (const permConfig of config.permissions) {
+      ws.permissions.insert({
+        object: 'permission',
+        slug: permConfig.slug,
+        name: permConfig.name,
+        description: permConfig.description ?? null,
+        resource_type_slug: permConfig.resource_type_slug ?? DEFAULT_RESOURCE_TYPE_SLUG,
+      });
+    }
+  }
+
+  if (config.roles) {
+    for (const roleConfig of config.roles) {
+      const role = ws.roles.insert({
+        object: 'role',
+        slug: roleConfig.slug,
+        name: roleConfig.name,
+        description: roleConfig.description ?? null,
+        type: roleConfig.type ?? 'EnvironmentRole',
+        organization_id: roleConfig.organization_id ?? null,
+        is_default_role: roleConfig.is_default_role ?? false,
+        priority: roleConfig.priority ?? 0,
+        resource_type_slug: roleConfig.resource_type_slug ?? DEFAULT_RESOURCE_TYPE_SLUG,
+      });
+
+      if (roleConfig.permissions) {
+        for (const permSlug of roleConfig.permissions) {
+          const perm = ws.permissions.findOneBy('slug', permSlug);
+          if (perm) {
+            ws.rolePermissions.insert({ role_id: role.id, permission_id: perm.id });
+          }
+        }
+      }
+    }
+  }
+
   if (config.organizations) {
     for (const orgConfig of config.organizations) {
       const org = ws.organizations.insert({
@@ -844,43 +885,6 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkOSSee
         refresh_token: null,
         token_expires_at: null,
       });
-    }
-  }
-
-  if (config.permissions) {
-    for (const permConfig of config.permissions) {
-      ws.permissions.insert({
-        object: 'permission',
-        slug: permConfig.slug,
-        name: permConfig.name,
-        description: permConfig.description ?? null,
-        resource_type_slug: permConfig.resource_type_slug ?? DEFAULT_RESOURCE_TYPE_SLUG,
-      });
-    }
-  }
-
-  if (config.roles) {
-    for (const roleConfig of config.roles) {
-      const role = ws.roles.insert({
-        object: 'role',
-        slug: roleConfig.slug,
-        name: roleConfig.name,
-        description: roleConfig.description ?? null,
-        type: roleConfig.type ?? 'EnvironmentRole',
-        organization_id: roleConfig.organization_id ?? null,
-        is_default_role: roleConfig.is_default_role ?? false,
-        priority: roleConfig.priority ?? 0,
-        resource_type_slug: roleConfig.resource_type_slug ?? DEFAULT_RESOURCE_TYPE_SLUG,
-      });
-
-      if (roleConfig.permissions) {
-        for (const permSlug of roleConfig.permissions) {
-          const perm = ws.permissions.findOneBy('slug', permSlug);
-          if (perm) {
-            ws.rolePermissions.insert({ role_id: role.id, permission_id: perm.id });
-          }
-        }
-      }
     }
   }
 

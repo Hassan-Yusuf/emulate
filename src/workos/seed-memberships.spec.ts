@@ -275,6 +275,36 @@ describe('Seeding organization memberships', () => {
       expect(both.errors.map((e) => e.message)).toEqual(['use either role or roles for a membership, not both']);
     });
 
+    it('names the priority role on the creation event of a seeded membership', async () => {
+      emulator = await createEmulator({
+        port: 0,
+        seed: {
+          users: [{ email: 'ranked@acme.com' }],
+          roles: [
+            { slug: 'viewer', name: 'Viewer', priority: 1 },
+            { slug: 'admin', name: 'Admin', priority: 0 },
+          ],
+          organizations: [
+            { name: 'Acme Corp', memberships: [{ email: 'ranked@acme.com', roles: ['viewer', 'admin'] }] },
+          ],
+        },
+      });
+
+      const headers = auth(emulator.apiKey);
+      const m = (
+        (await (await fetch(`${emulator.url}/user_management/organization_memberships`, { headers })).json()) as any
+      ).data[0];
+      expect(m.role).toEqual({ slug: 'admin' });
+      expect(m.roles).toEqual([{ slug: 'admin' }, { slug: 'viewer' }]);
+
+      const events = (await (
+        await fetch(`${emulator.url}/events?events[]=organization_membership.created`, { headers })
+      ).json()) as any;
+      const event = events.data.find((e: any) => e.data.id === m.id);
+      expect(event.data.role).toEqual({ slug: 'admin' });
+      expect(event.data.roles).toEqual([{ slug: 'admin' }, { slug: 'viewer' }]);
+    });
+
     it('seeds a membership holding several roles, the first as primary', async () => {
       emulator = await createEmulator({
         port: 0,
