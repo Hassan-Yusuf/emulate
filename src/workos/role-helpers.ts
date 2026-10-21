@@ -46,10 +46,13 @@ export function resolvePrimaryRole(ws: WorkOSStore, organizationId: string, slug
  * The roles that apply to an organization, the way production lists them: every environment
  * role plus the organization's own, an organization role shadowing an environment role with
  * the same slug, in priority order. Equal priorities keep environment roles ahead of the
- * organization's, each in insertion order, since Array.prototype.sort is stable.
+ * organization's, each in insertion order, since Array.prototype.sort is stable. The
+ * organization's roles are matched on organization_id, as resolvePrimaryRole does: a seeded
+ * role can carry an organization_id with its type defaulted to EnvironmentRole, and it is
+ * still that organization's override.
  */
 export function rolesApplyingTo(ws: WorkOSStore, organizationId: string): WorkOSRole[] {
-  const own = ws.roles.findBy('organization_id', organizationId).filter((r) => r.type === 'OrganizationRole');
+  const own = ws.roles.findBy('organization_id', organizationId);
   const shadowed = new Set(own.map((r) => r.slug));
   const environment = ws.roles
     .all()
