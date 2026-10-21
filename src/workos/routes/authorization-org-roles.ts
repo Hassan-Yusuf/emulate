@@ -1,7 +1,13 @@
 import { type RouteContext, notFound, validationError, parseJsonBody } from '../../core/index.js';
 import { getWorkOSStore } from '../store.js';
 import { formatRole } from '../helpers.js';
-import { emitRolePermissionsUpdated, findOrgRole, requireOrgRole, registerRoleRoutes } from '../role-helpers.js';
+import {
+  emitRolePermissionsUpdated,
+  findOrgRole,
+  requireOrgRole,
+  registerRoleRoutes,
+  rolesApplyingTo,
+} from '../role-helpers.js';
 
 export function authorizationOrgRoleRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -47,6 +53,9 @@ export function authorizationOrgRoleRoutes(ctx: RouteContext): void {
     requireRole: (ws, c) => requireOrgRole(ws, c.req.param('orgId')!, c.req.param('slug')!),
     findRole: (ws, c, slug) => findOrgRole(ws, c.req.param('orgId')!, slug),
     listFilter: (c) => (r) => r.organization_id === c.req.param('orgId')! && r.type === 'OrganizationRole',
+    // The spec: "all roles that apply to an organization. This includes both environment roles
+    // and custom roles, returned in priority order."
+    listRoles: (ws, c) => rolesApplyingTo(ws, c.req.param('orgId')!),
     insertDefaults: (c) => ({ organization_id: c.req.param('orgId')! }),
     duplicateMessage: 'Role with this slug already exists in this organization',
     duplicateCode: 'organization_role_slug_conflict',

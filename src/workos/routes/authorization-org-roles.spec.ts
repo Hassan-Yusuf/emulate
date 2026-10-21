@@ -101,6 +101,40 @@ describe('Authorization org role routes', () => {
     expect(body.data[0].slug).toBe('r1');
   });
 
+  it('lists the environment roles that apply to the org too, shadowed by its own, in priority order', async () => {
+    const org = await createOrg('Applies Org');
+    const other = await createOrg('Other Org');
+    await req('/authorization/roles', {
+      method: 'POST',
+      body: JSON.stringify({ slug: 'member', name: 'Member', priority: 0 }),
+    });
+    await req('/authorization/roles', {
+      method: 'POST',
+      body: JSON.stringify({ slug: 'admin', name: 'Admin', priority: 1 }),
+    });
+    await req(`/authorization/organizations/${org.id}/roles`, {
+      method: 'POST',
+      body: JSON.stringify({ slug: 'reviewer', name: 'Reviewer', priority: 2 }),
+    });
+    await req(`/authorization/organizations/${org.id}/roles`, {
+      method: 'POST',
+      body: JSON.stringify({ slug: 'admin', name: 'Applies admin', priority: 1 }),
+    });
+    await req(`/authorization/organizations/${other.id}/roles`, {
+      method: 'POST',
+      body: JSON.stringify({ slug: 'outsider', name: 'Outsider', priority: 0 }),
+    });
+
+    const body = await json(await req(`/authorization/organizations/${org.id}/roles`));
+
+    expect(body.data.map((r: any) => [r.slug, r.type])).toEqual([
+      ['member', 'EnvironmentRole'],
+      ['admin', 'OrganizationRole'],
+      ['reviewer', 'OrganizationRole'],
+    ]);
+    expect(body.data[1].name).toBe('Applies admin');
+  });
+
   it('gets an org role by slug', async () => {
     const org = await createOrg('Get Org');
     await req(`/authorization/organizations/${org.id}/roles`, {
