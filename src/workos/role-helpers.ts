@@ -138,10 +138,11 @@ export interface RoleRouteConfig {
   roleType: 'EnvironmentRole' | 'OrganizationRole';
   requireRole: (ws: WorkOSStore, c: Context) => WorkOSRole;
   findRole: (ws: WorkOSStore, c: Context, slug: string) => WorkOSRole | undefined;
-  listFilter: (c: Context) => (r: WorkOSRole) => boolean;
+  /** Narrows the paged GET to the roles table rows it serves. Unused when listRoles is set. */
+  listFilter?: (c: Context) => (r: WorkOSRole) => boolean;
   /**
    * The whole list the GET answers with, when production's list is not a filtered page of
-   * the roles table: the spec's RoleList is unpaged and in priority order.
+   * the roles table: the spec's RoleList is unpaged and in priority order. Replaces listFilter.
    */
   listRoles?: (ws: WorkOSStore, c: Context) => WorkOSRole[];
   insertDefaults: (c: Context) => Partial<WorkOSRole>;
@@ -215,7 +216,7 @@ export function registerRoleRoutes(ctx: RouteContext, config: RoleRouteConfig): 
 
     const result = ws.roles.list({
       ...params,
-      filter: config.listFilter(c),
+      filter: config.listFilter?.(c),
     });
 
     return c.json(formatListResponse(result, (r) => formatRole(r, ws)));

@@ -179,6 +179,18 @@ describe('Authorization org role routes', () => {
     expect(body.list_metadata).toEqual({ before: null, after: null });
   });
 
+  it('answers 404 for an unknown organization rather than the environment roles', async () => {
+    await req('/authorization/roles', {
+      method: 'POST',
+      body: JSON.stringify({ slug: 'member', name: 'Member' }),
+    });
+
+    const res = await req('/authorization/organizations/org_does_not_exist/roles');
+
+    expect(res.status).toBe(404);
+    expect((await json(res)).message).toBe('Organization not found');
+  });
+
   it('gets an org role by slug', async () => {
     const org = await createOrg('Get Org');
     await req(`/authorization/organizations/${org.id}/roles`, {
